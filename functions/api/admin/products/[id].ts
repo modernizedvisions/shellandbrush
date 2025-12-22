@@ -1,0 +1,350 @@
+import type { Product } from '../../../../src/lib/types';
+
+type D1PreparedStatement = {
+  run(): Promise<{ success: boolean; error?: string; meta?: { changes?: number } }>;
+  first<T>(): Promise<T | null>;
+  bind(...values: unknown[]): D1PreparedStatement;
+};
+
+type D1Database = {
+  prepare(query: string): D1PreparedStatement;
+};
+
+type ProductRow = {
+  id: string;
+  name: string | null;
+  slug?: string | null;
+  description: string | null;
+  price_cents: number | null;
+  category: string | null;
+  image_url: string | null;
+  image_urls_json?: string | null;
+  is_active: number | null;
+  is_one_off?: number | null;
+  is_sold?: number | null;
+  quantity_available?: number | null;
+  stripe_price_id?: string | null;
+  stripe_product_id?: string | null;
+  collection?: string | null;
+  created_at: string | null;
+};
+
+type UpdateProductInput = {
+  name?: string;
+  description?: string;
+  priceCents?: number;
+  category?: string;
+  imageUrl?: string;
+  imageUrls?: string[];
+  quantityAvailable?: number;
+  isOneOff?: boolean;
+  isActive?: boolean;
+  stripePriceId?: string;
+  stripeProductId?: string;
+  collection?: string;
+};
+
+const mapRowToProduct = (row: ProductRow): Product => {
+  const imageUrls = row.image_urls_json ? safeParseJsonArray(row.image_urls_json) : [];
+  const primaryImage = row.image_url || imageUrls[0] || '';
+
+  return {
+    id: row.id,
+    stripeProductId: row.stripe_product_id || row.id,
+    stripePriceId: row.stripe_price_id || undefined,
+    name: row.name ?? '',
+    description: row.description ?? '',
+    imageUrls: primaryImage ? [primaryImage, ...imageUrls.filter((url) => url !== primaryImage)] : imageUrls,
+    imageUrl: primaryImage,
+    thumbnailUrl: primaryImage || undefined,
+    type: row.category ?? 'General',
+    category: row.category ?? undefined,
+    categories: row.category ? [row.category] : undefined,
+    collection: row.collection ?? undefined,
+    oneoff: row.is_one_off === null ? true : row.is_one_off === 1,
+    visible: row.is_active === null ? true : row.is_active === 1,
+    isSold: row.is_sold === 1,
+    priceCents: row.price_cents ?? undefined,
+    soldAt: undefined,
+    quantityAvailable: row.quantity_available ?? undefined,
+    slug: row.slug ?? undefined,
+  };
+};
+
+const safeParseJsonArray = (value: string | null): string[] => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+const toSlug = (value: string) =>
+  value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+
+const sanitizeCategory = (value: string | undefined | null) => (value || '').trim();
+
+const validateUpdate = (input: UpdateProductInput) => {
+  if (input.priceCents !== undefined && input.priceCents < 0) {
+    return 'priceCents must be non-negative';
+  }
+  if (input.category !== undefined && !sanitizeCategory(input.category)) {
+    return 'category cannot be empty';
+  }
+  return null;
+};
+
+const REQUIRED_PRODUCT_COLUMNS: Record<string, string> = {
+  image_urls_json: 'image_urls_json TEXT',
+  is_one_off: 'is_one_off INTEGER DEFAULT 1',
+  is_sold: 'is_sold INTEGER DEFAULT 0',
+  quantity_available: 'quantity_available INTEGER DEFAULT 1',
+  stripe_price_id: 'stripe_price_id TEXT',
+  stripe_product_id: 'stripe_product_id TEXT',
+  collection: 'collection TEXT',
+};
+
+const createProductsTable = `
+  CREATE TABLE IF NOT EXISTS products (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    slug TEXT,
+    description TEXT,
+    price_cents INTEGER,
+    category TEXT,
+    image_url TEXT,
+    image_urls_json TEXT,
+    is_active INTEGER DEFAULT 1,
+    is_one_off INTEGER DEFAULT 1,
+    is_sold INTEGER DEFAULT 0,
+    quantity_available INTEGER DEFAULT 1,
+    stripe_price_id TEXT,
+    stripe_product_id TEXT,
+    collection TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+async function ensureProductSchema(db: D1Database) {
+  await db.prepare(createProductsTable).run();
+
+  for (const [name, ddl] of Object.entries(REQUIRED_PRODUCT_COLUMNS)) {
+    try {
+      await db.prepare(`ALTER TABLE products ADD COLUMN ${ddl};`).run();
+    } catch (error) {
+      const message = (error as Error)?.message || '';
+      if (!/duplicate column|already exists/i.test(message)) {
+        console.error(`Failed to add column ${name}`, error);
+      }
+    }
+  }
+}
+
+export async function onRequestPut(context: {
+  env: { DB: D1Database };
+  request: Request;
+  params: Record<string, string>;
+}): Promise<Response> {
+  try {
+    console.log('[products save] incoming', {
+      method: context.request.method,
+      url: context.request.url,
+      contentType: context.request.headers.get('content-type'),
+      contentLength: context.request.headers.get('content-length'),
+    });
+
+    const id = context.params?.id;
+    if (!id) {
+      return new Response(JSON.stringify({ error: 'Product id is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    let body: UpdateProductInput;
+    try {
+      body = (await context.request.json()) as UpdateProductInput;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return new Response(JSON.stringify({ error: 'Invalid JSON', detail }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const imageUrls = Array.isArray(body.imageUrls) ? body.imageUrls : [];
+    console.log('[products save] payload summary', {
+      keys: Object.keys(body),
+      imageCount: imageUrls.length + (body.imageUrl ? 1 : 0),
+      imageUrlPrefix: body.imageUrl ? body.imageUrl.slice(0, 30) : null,
+      imageUrlsPreview: imageUrls.slice(0, 3).map((url) => (typeof url === 'string' ? url.slice(0, 30) : '')),
+    });
+    const validationError = validateUpdate(body);
+    if (validationError) {
+      return new Response(JSON.stringify({ error: validationError }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const hasDataUrl = (value?: string | null) =>
+      typeof value === 'string' && value.trim().toLowerCase().startsWith('data:image/');
+    const hasDataUrlInArray = (value?: string[] | null) =>
+      Array.isArray(value) && value.some((entry) => hasDataUrl(entry));
+
+    if (hasDataUrl(body.imageUrl) || hasDataUrlInArray(body.imageUrls)) {
+      return new Response(
+        JSON.stringify({ error: 'Images must be uploaded first; only URLs allowed.' }),
+        {
+          status: 413,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    const sets: string[] = [];
+    const values: unknown[] = [];
+
+    await ensureProductSchema(context.env.DB);
+    try {
+      const table = await context.env.DB.prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='products';`
+      ).first<{ name: string }>();
+      if (!table?.name) {
+        return new Response(JSON.stringify({ error: 'Products table missing' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    } catch (dbError) {
+      const detail = dbError instanceof Error ? dbError.message : String(dbError);
+      return new Response(JSON.stringify({ error: 'DB schema check failed', detail }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const addSet = (clause: string, value: unknown) => {
+      sets.push(clause);
+      values.push(value);
+    };
+
+    if (body.name !== undefined) addSet('name = ?', body.name);
+    if (body.name) addSet('slug = ?', toSlug(body.name));
+    if (body.description !== undefined) addSet('description = ?', body.description);
+    if (body.priceCents !== undefined) addSet('price_cents = ?', body.priceCents);
+    if (body.category !== undefined) {
+      const categoryValue = sanitizeCategory(body.category);
+      addSet('category = ?', categoryValue || null);
+    }
+    if (body.imageUrl !== undefined) {
+      const primary = typeof body.imageUrl === 'string' ? body.imageUrl.trim() : '';
+      addSet('image_url = ?', primary ? primary : null);
+    }
+    if (body.imageUrls !== undefined) {
+      addSet('image_urls_json = ?', JSON.stringify(body.imageUrls));
+    }
+    if (body.quantityAvailable !== undefined) addSet('quantity_available = ?', body.quantityAvailable);
+    if (body.isOneOff !== undefined) addSet('is_one_off = ?', body.isOneOff ? 1 : 0);
+    if (body.isActive !== undefined) addSet('is_active = ?', body.isActive ? 1 : 0);
+    if (body.stripePriceId !== undefined) addSet('stripe_price_id = ?', body.stripePriceId);
+    if (body.stripeProductId !== undefined) addSet('stripe_product_id = ?', body.stripeProductId);
+    if (body.collection !== undefined) addSet('collection = ?', body.collection);
+
+    if (!sets.length) {
+      return new Response(JSON.stringify({ error: 'No fields to update' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const statement = context.env.DB.prepare(
+      `UPDATE products SET ${sets.join(', ')} WHERE id = ?;`
+    ).bind(...values, id);
+
+    // TODO: When Stripe is wired, sync updates to Stripe product/price as needed.
+    const result = await statement.run();
+    if (!result.success) {
+      throw new Error(result.error || 'Update failed');
+    }
+    if (result.meta?.changes === 0) {
+      return new Response(JSON.stringify({ error: 'Product not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const updated = await context.env.DB.prepare(
+      `
+      SELECT id, name, slug, description, price_cents, category, image_url, image_urls_json,
+             is_active, is_one_off, is_sold, quantity_available, stripe_price_id, stripe_product_id,
+             collection, created_at
+      FROM products WHERE id = ?;
+    `
+    )
+      .bind(id)
+      .first<ProductRow>();
+
+    const product = updated ? mapRowToProduct(updated) : null;
+
+    return new Response(JSON.stringify({ product }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error('Failed to update product', { detail, id: context.params?.id });
+    return new Response(JSON.stringify({ error: 'Update product failed', detail }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+export async function onRequestDelete(context: {
+  env: { DB: D1Database };
+  request: Request;
+  params: Record<string, string>;
+}): Promise<Response> {
+  try {
+    const id = context.params?.id;
+    if (!id) {
+      return new Response(JSON.stringify({ error: 'Product id is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const result = await context.env.DB.prepare('DELETE FROM products WHERE id = ?;')
+      .bind(id)
+      .run();
+
+    if (!result.success) {
+      throw new Error(result.error || 'Delete failed');
+    }
+
+    if (result.meta?.changes === 0) {
+      return new Response(JSON.stringify({ error: 'Product not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('Failed to delete product', error);
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}

@@ -1,0 +1,76 @@
+import React from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './dialog';
+
+type ConfirmVariant = 'danger' | 'primary';
+
+interface ConfirmDialogProps {
+  open: boolean;
+  title?: string;
+  description?: string;
+  confirmText?: string;
+  cancelText?: string;
+  confirmVariant?: ConfirmVariant;
+  confirmDisabled?: boolean;
+  cancelDisabled?: boolean;
+  onConfirm: () => void | Promise<void>;
+  onCancel: () => void;
+}
+
+export function ConfirmDialog({
+  open,
+  title = 'Are you sure?',
+  description = "This action can't be undone.",
+  confirmText = 'Confirm',
+  cancelText = 'Cancel',
+  confirmVariant = 'danger',
+  confirmDisabled = false,
+  cancelDisabled = false,
+  onConfirm,
+  onCancel,
+}: ConfirmDialogProps) {
+  const confirmClasses =
+    confirmVariant === 'primary'
+      ? 'bg-slate-900 text-white hover:bg-slate-800'
+      : 'bg-red-600 text-white hover:bg-red-700';
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !cancelDisabled) onCancel();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={cancelDisabled}
+            className="rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {cancelText}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={confirmDisabled}
+            className={`rounded-md px-3 py-2 text-sm font-medium disabled:opacity-50 ${confirmClasses}`}
+          >
+            {confirmText}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

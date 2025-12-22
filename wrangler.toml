@@ -1,0 +1,8 @@
+name = "chesapeake_shell"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "chesapeake_shell_db"
+database_id = "fda8b6b7-e1df-41f6-82d8-f005c108a3dd"
+preview_database_id = "fda8b6b7-e1df-41f6-82d8-f005c108a3dd"
