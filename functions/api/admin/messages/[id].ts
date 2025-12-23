@@ -1,3 +1,5 @@
+import { requireAdmin } from '../../../_lib/adminAuth';
+
 type D1PreparedStatement = {
   run(): Promise<{ success: boolean; error?: string; meta?: { changes?: number } }>;
   bind(...values: unknown[]): D1PreparedStatement;
@@ -8,10 +10,12 @@ type D1Database = {
 };
 
 export async function onRequestDelete(context: {
-  env: { DB: D1Database };
+  env: { DB: D1Database; ADMIN_PASSWORD?: string };
   params: Record<string, string>;
   request: Request;
 }): Promise<Response> {
+  const auth = requireAdmin(context.request, context.env);
+  if (auth) return auth;
   const id = context.params?.id;
   if (!id) {
     return new Response(JSON.stringify({ error: 'Message id is required' }), {

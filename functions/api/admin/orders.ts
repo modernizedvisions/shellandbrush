@@ -1,3 +1,5 @@
+import { requireAdmin } from '../_lib/adminAuth';
+
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
   bind(...values: unknown[]): D1PreparedStatement;
@@ -32,7 +34,9 @@ type OrderItemRow = {
   product_image_url?: string | null;
 };
 
-export const onRequestGet = async (context: { env: { DB: D1Database } }): Promise<Response> => {
+export const onRequestGet = async (context: { env: { DB: D1Database; ADMIN_PASSWORD?: string }; request: Request }): Promise<Response> => {
+  const auth = requireAdmin(context.request, context.env);
+  if (auth) return auth;
   try {
     await assertOrdersTables(context.env.DB);
     const columns = await context.env.DB.prepare(`PRAGMA table_info(orders);`).all<{ name: string }>();

@@ -1,4 +1,5 @@
 import type { Product } from '../../../../src/lib/types';
+import { requireAdmin } from '../../../_lib/adminAuth';
 
 type D1PreparedStatement = {
   run(): Promise<{ success: boolean; error?: string; meta?: { changes?: number } }>;
@@ -147,10 +148,12 @@ async function ensureProductSchema(db: D1Database) {
 }
 
 export async function onRequestPut(context: {
-  env: { DB: D1Database };
+  env: { DB: D1Database; ADMIN_PASSWORD?: string };
   request: Request;
   params: Record<string, string>;
 }): Promise<Response> {
+  const auth = requireAdmin(context.request, context.env);
+  if (auth) return auth;
   try {
     console.log('[products save] incoming', {
       method: context.request.method,
@@ -308,10 +311,12 @@ export async function onRequestPut(context: {
 }
 
 export async function onRequestDelete(context: {
-  env: { DB: D1Database };
+  env: { DB: D1Database; ADMIN_PASSWORD?: string };
   request: Request;
   params: Record<string, string>;
 }): Promise<Response> {
+  const auth = requireAdmin(context.request, context.env);
+  if (auth) return auth;
   try {
     const id = context.params?.id;
     if (!id) {

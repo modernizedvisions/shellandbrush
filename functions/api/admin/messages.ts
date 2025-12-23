@@ -1,3 +1,5 @@
+import { requireAdmin } from '../_lib/adminAuth';
+
 type D1PreparedStatement = {
   all<T>(): Promise<{ results?: T[] }>;
 };
@@ -18,7 +20,9 @@ type MessageRow = {
   status?: string | null;
 };
 
-export async function onRequestGet(context: { env: { DB: D1Database } }): Promise<Response> {
+export async function onRequestGet(context: { env: { DB: D1Database; ADMIN_PASSWORD?: string }; request: Request }): Promise<Response> {
+  const auth = requireAdmin(context.request, context.env);
+  if (auth) return auth;
   const db = context.env.DB;
 
   try {

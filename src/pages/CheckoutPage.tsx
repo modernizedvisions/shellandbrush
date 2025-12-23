@@ -309,7 +309,7 @@ export function CheckoutPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-sm font-semibold text-gray-900 truncate">{item.name || 'Item'}</p>
-                          <span className="text-sm font-semibold text-gray-900">{formatMoney(lineTotal)}</span>
+                          <span className="text-sm font-serif font-semibold text-gray-900">{formatMoney(lineTotal)}</span>
                         </div>
                         {item.collection && (
                           <p className="text-[11px] uppercase tracking-wide text-gray-500">{item.collection}</p>
@@ -317,7 +317,9 @@ export function CheckoutPage() {
                         {item.description && (
                           <p className="text-xs text-gray-600 line-clamp-2">{item.description}</p>
                         )}
-                        <p className="text-xs text-gray-500 mt-0.5">Qty: {item.quantity || 1} × {formatMoney(item.priceCents)}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Qty: {item.quantity || 1} × <span className="font-serif">{formatMoney(item.priceCents)}</span>
+                        </p>
                       </div>
                     </div>
                   );
@@ -327,15 +329,15 @@ export function CheckoutPage() {
               <div className="border-t border-gray-200 pt-3 space-y-1 text-sm">
                 <div className="flex justify-between text-gray-700">
                   <span>Subtotal</span>
-                  <span className="font-medium">{formatMoney(subtotalCents || 0)}</span>
+                  <span className="font-serif font-medium">{formatMoney(subtotalCents || 0)}</span>
                 </div>
                 <div className="flex justify-between text-gray-700">
                   <span>Shipping</span>
-                  <span className="font-medium">{formatMoney(shippingCents)}</span>
+                  <span className="font-serif font-medium">{formatMoney(shippingCents)}</span>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-gray-200 text-base font-semibold text-gray-900">
                   <span>Total</span>
-                  <span>{formatMoney(totalCents)}</span>
+                  <span className="font-serif">{formatMoney(totalCents)}</span>
                 </div>
               </div>
             </div>

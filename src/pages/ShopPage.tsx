@@ -381,11 +381,11 @@ export function ShopPage() {
     <div className="py-12 bg-white min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mt-10 mb-6">
-          <h1 className="text-4xl sm:text-5xl font-serif font-bold tracking-wide text-gray-900">
-            THE COLLECTION
+          <h1 className="text-2xl md:text-3xl font-serif tracking-tight text-slate-900 uppercase">
+            FEATURED WORKS
           </h1>
-          <p className="text-gray-600 text-lg mt-2">
-            One-of-a-kind shell art, crafted with care on the Chesapeake Bay.
+          <p className="mt-2 text-sm md:text-base font-sans text-slate-600 uppercase">
+            Explore our collection of handcrafted shell art pieces, each uniquely designed and ready to find its perfect home
           </p>
         </div>
 
@@ -435,11 +435,13 @@ export function ShopPage() {
               return (
                 <section key={category.slug} className="mb-10">
                   <div className="text-center mb-4">
-                    <h2 className="text-3xl font-semibold tracking-wide text-gray-900">
+                    <h2 className="text-2xl md:text-3xl font-serif tracking-tight text-slate-900 uppercase">
                       {copy?.title || category.name}
                     </h2>
                     {copy?.description && (
-                      <p className="mt-1 text-sm font-serif font-medium text-slate-700">{copy.description}</p>
+                      <p className="mt-1 text-sm md:text-base font-sans text-slate-600 uppercase">
+                        {copy.description}
+                      </p>
                     )}
                   </div>
                   <ProductGrid products={items} />

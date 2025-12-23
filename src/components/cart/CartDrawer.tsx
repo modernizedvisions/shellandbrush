@@ -60,7 +60,7 @@ export function CartDrawer() {
                   )}
                   <div className="flex-1">
                     <h3 className="font-medium text-gray-900">{item.name}</h3>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm text-gray-600 font-serif">
                       ${(item.priceCents / 100).toFixed(2)}
                     </p>
                     {item.oneoff && (
@@ -108,15 +108,15 @@ export function CartDrawer() {
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-600">Subtotal</span>
-                <span className="font-semibold text-gray-900">${(getSubtotal / 100).toFixed(2)}</span>
+                <span className="font-serif font-semibold text-gray-900">${(getSubtotal / 100).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Shipping</span>
-                <span className="font-semibold text-gray-900">${(shippingCents / 100).toFixed(2)}</span>
+                <span className="font-serif font-semibold text-gray-900">${(shippingCents / 100).toFixed(2)}</span>
               </div>
               <div className="flex justify-between pt-2 border-t border-gray-200 text-base font-bold">
                 <span>Total</span>
-                <span>${(totalCents / 100).toFixed(2)}</span>
+                <span className="font-serif">${(totalCents / 100).toFixed(2)}</span>
               </div>
             </div>
             <button

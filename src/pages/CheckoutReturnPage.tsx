@@ -77,7 +77,7 @@ export function CheckoutReturnPage() {
                 <h2 className="text-lg font-semibold text-gray-900">Order Summary</h2>
                 {session.currency && session.amountTotal != null && (
                   <p className="text-sm text-gray-700 font-semibold">
-                    Order total: {formatCurrency(session.amountTotal, session.currency)}
+                    Order total: <span className="font-serif">{formatCurrency(session.amountTotal, session.currency)}</span>
                   </p>
                 )}
               </div>
@@ -108,7 +108,7 @@ export function CheckoutReturnPage() {
                               )}
                             </div>
                           </div>
-                          <div className="text-sm font-semibold text-gray-900 text-right">
+                          <div className="text-sm font-serif font-semibold text-gray-900 text-right">
                             {session.currency ? formatCurrency(item.lineTotal, session.currency) : item.lineTotal}
                           </div>
                         </div>
@@ -121,7 +121,7 @@ export function CheckoutReturnPage() {
               {(session.shippingAmount || session.lineItems?.some((li) => li.isShipping)) && session.currency && (
                 <div className="mt-4 flex items-center justify-between text-sm text-gray-700">
                   <span>Shipping</span>
-                  <span className="font-medium">
+                  <span className="font-serif font-medium">
                     {formatCurrency(
                       (session.shippingAmount ?? 0) ||
                         session.lineItems?.filter((li) => li.isShipping).reduce((sum, li) => sum + (li.lineTotal || 0), 0) ||
@@ -134,7 +134,7 @@ export function CheckoutReturnPage() {
               {session.currency && session.amountTotal != null && (
                 <div className="mt-2 pt-4 border-t border-gray-200 flex items-center justify-between">
                   <span className="text-sm font-semibold text-gray-900">Order total</span>
-                  <span className="text-base font-bold text-gray-900">
+                  <span className="text-base font-serif font-bold text-gray-900">
                     {formatCurrency(session.amountTotal, session.currency)}
                   </span>
                 </div>

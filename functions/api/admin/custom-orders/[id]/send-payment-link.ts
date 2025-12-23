@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import { resolveFromEmail, sendEmail } from '../../../../_lib/email';
+import { requireAdmin } from '../../../_lib/adminAuth';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -59,10 +60,14 @@ export async function onRequestPost(context: {
     RESEND_FROM_EMAIL?: string;
     RESEND_REPLY_TO?: string;
     EMAIL_FROM?: string;
+    ADMIN_PASSWORD?: string;
   };
+  request: Request;
   params: Record<string, string>;
 }) {
   const { env, params } = context;
+  const auth = requireAdmin(context.request, context.env);
+  if (auth) return auth;
   const id = params?.id;
 
   if (!env.STRIPE_SECRET_KEY) {

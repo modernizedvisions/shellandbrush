@@ -199,7 +199,7 @@ export function ProductDetailPage() {
                   </div>
                   <div className="p-4 space-y-2">
                     <h3 className="text-lg font-semibold text-gray-900">{item.name}</h3>
-                    {item.priceCents && <p className="text-sm font-bold text-gray-900">{formatPrice(item.priceCents)}</p>}
+                    {item.priceCents && <p className="text-sm font-serif font-bold text-gray-900">{formatPrice(item.priceCents)}</p>}
                     <div className="flex gap-2">
                       <button
                         onClick={() => navigate(`/product/${item.id}`)}

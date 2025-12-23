@@ -1,4 +1,5 @@
 import { defaultShopCategoryTiles } from '../../../src/lib/db/mockData';
+import { requireAdmin } from '../_lib/adminAuth';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -60,7 +61,12 @@ const REQUIRED_CATEGORY_COLUMNS: Record<string, string> = {
   hero_image_url: 'hero_image_url TEXT',
 };
 
-export async function onRequest(context: { env: { DB: D1Database }; request: Request }): Promise<Response> {
+export async function onRequest(context: {
+  env: { DB: D1Database; ADMIN_PASSWORD?: string };
+  request: Request;
+}): Promise<Response> {
+  const auth = requireAdmin(context.request, context.env);
+  if (auth) return auth;
   const method = context.request.method.toUpperCase();
 
   try {

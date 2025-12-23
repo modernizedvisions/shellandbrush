@@ -48,7 +48,7 @@ export default function HomeCategoryCard({
             <h3 className="font-semibold text-gray-900 leading-tight">{title}</h3>
             <p className="text-sm text-gray-600">{label}</p>
           </div>
-          {priceLabel && product && <p className="text-lg font-bold text-gray-900 whitespace-nowrap">{priceLabel}</p>}
+          {priceLabel && product && <p className="text-lg font-serif font-bold text-gray-900 whitespace-nowrap">{priceLabel}</p>}
         </div>
 
         {product ? (

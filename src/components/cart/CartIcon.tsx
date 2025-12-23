@@ -10,7 +10,7 @@ export function CartIcon() {
     <button
       onClick={() => setCartDrawerOpen(true)}
       className="relative p-2 hover:bg-gray-100 rounded-full transition-colors"
-      aria-label="Shopping cart"
+      aria-label="Open cart"
     >
       <ShoppingCart className="w-6 h-6 text-gray-700" />
       {totalItems > 0 && (

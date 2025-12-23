@@ -1,3 +1,5 @@
+import { requireAdmin } from '../../../_lib/adminAuth';
+
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
   first<T>(): Promise<T | null>;
@@ -19,7 +21,13 @@ type CustomOrderPayload = {
   paymentLink?: string | null;
 };
 
-export async function onRequestPatch(context: { env: { DB: D1Database }; request: Request; params: Record<string, string> }): Promise<Response> {
+export async function onRequestPatch(context: {
+  env: { DB: D1Database; ADMIN_PASSWORD?: string };
+  request: Request;
+  params: Record<string, string>;
+}): Promise<Response> {
+  const auth = requireAdmin(context.request, context.env);
+  if (auth) return auth;
   try {
     await ensureCustomOrdersSchema(context.env.DB);
     const columns = await getCustomOrdersColumns(context.env.DB);

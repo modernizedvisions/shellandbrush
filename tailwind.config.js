@@ -5,7 +5,7 @@ export default {
     extend: {
       fontFamily: {
         'serif': ['Playfair Display', 'serif'],
-        'sans': ['Inter', 'sans-serif'],
+        'sans': ['Albert Sans', 'sans-serif'],
       },
       colors: {
         'accent-gold': '#cfa15a',

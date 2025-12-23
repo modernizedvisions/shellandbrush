@@ -1,6 +1,24 @@
 import { useEffect, useState } from 'react';
 
-export function ContactForm() {
+interface ContactFormProps {
+  heading?: string;
+  subheading?: string;
+  showHeading?: boolean;
+  useDefaultBackground?: boolean;
+  sectionClassName?: string;
+  containerClassName?: string;
+  panelClassName?: string;
+}
+
+export function ContactForm({
+  heading = 'Get In Touch',
+  subheading = 'Have an idea or a question? Reach out below.',
+  showHeading = true,
+  useDefaultBackground = true,
+  sectionClassName = '',
+  containerClassName = '',
+  panelClassName = '',
+}: ContactFormProps = {}) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -109,17 +127,21 @@ export function ContactForm() {
   };
 
   return (
-    <div className="py-12" id="contact" style={{ backgroundColor: 'var(--follow-bg, #f1f5f9)' }}>
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="w-full max-w-4xl mx-auto rounded-2xl border border-slate-200 shadow-lg bg-white overflow-hidden p-4 sm:p-6 md:p-8">
-          <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold text-gray-900">
-              Get In Touch
-            </h2>
-            <p className="mt-2 text-sm font-medium text-slate-600">
-              Have an idea or a question? Reach out below.
-            </p>
-          </div>
+    <div
+      className={`py-12 ${sectionClassName}`.trim()}
+      id="contact"
+      style={useDefaultBackground ? { backgroundColor: 'var(--follow-bg, #f1f5f9)' } : undefined}
+    >
+      <div className={`max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 ${containerClassName}`.trim()}>
+        <div
+          className={`w-full max-w-4xl mx-auto rounded-2xl border border-slate-200 shadow-lg bg-white overflow-hidden p-4 sm:p-6 md:p-8 ${panelClassName}`.trim()}
+        >
+          {showHeading && (
+            <div className="text-center mb-8">
+              <h2 className="text-3xl font-bold text-gray-900">{heading}</h2>
+              <p className="mt-2 text-sm font-medium text-slate-600">{subheading}</p>
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">

@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import type { Product } from '../../../src/lib/types';
+import { requireAdmin } from '../_lib/adminAuth';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -160,7 +161,9 @@ async function ensureProductSchema(db: D1Database) {
   }
 }
 
-export async function onRequestGet(context: { env: { DB: D1Database }; request: Request }): Promise<Response> {
+export async function onRequestGet(context: { env: { DB: D1Database; ADMIN_PASSWORD?: string }; request: Request }): Promise<Response> {
+  const auth = requireAdmin(context.request, context.env);
+  if (auth) return auth;
   try {
     await ensureProductSchema(context.env.DB);
 
@@ -188,7 +191,12 @@ export async function onRequestGet(context: { env: { DB: D1Database }; request: 
   }
 }
 
-export async function onRequestPost(context: { env: { DB: D1Database; STRIPE_SECRET_KEY?: string }; request: Request }): Promise<Response> {
+export async function onRequestPost(context: {
+  env: { DB: D1Database; STRIPE_SECRET_KEY?: string; ADMIN_PASSWORD?: string };
+  request: Request;
+}): Promise<Response> {
+  const auth = requireAdmin(context.request, context.env);
+  if (auth) return auth;
   try {
     console.log('[products save] incoming', {
       method: context.request.method,
@@ -354,7 +362,9 @@ export async function onRequestPost(context: { env: { DB: D1Database; STRIPE_SEC
   }
 }
 
-async function onRequestDelete(context: { env: { DB: D1Database }; request: Request }): Promise<Response> {
+async function onRequestDelete(context: { env: { DB: D1Database; ADMIN_PASSWORD?: string }; request: Request }): Promise<Response> {
+  const auth = requireAdmin(context.request, context.env);
+  if (auth) return auth;
   try {
     const url = new URL(context.request.url);
     let id = url.searchParams.get('id');
@@ -405,7 +415,7 @@ async function onRequestDelete(context: { env: { DB: D1Database }; request: Requ
   }
 }
 
-export async function onRequest(context: { env: { DB: D1Database }; request: Request }): Promise<Response> {
+export async function onRequest(context: { env: { DB: D1Database; ADMIN_PASSWORD?: string }; request: Request }): Promise<Response> {
   const method = context.request.method.toUpperCase();
   if (method === 'GET') return onRequestGet(context);
   if (method === 'POST') return onRequestPost(context);

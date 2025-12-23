@@ -1,3 +1,5 @@
+import { requireAdmin } from '../_lib/adminAuth';
+
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
   first<T>(): Promise<T | null>;
@@ -42,7 +44,9 @@ type CustomOrderPayload = {
   paymentLink?: string | null;
 };
 
-export async function onRequestGet(context: { env: { DB: D1Database } }): Promise<Response> {
+export async function onRequestGet(context: { env: { DB: D1Database; ADMIN_PASSWORD?: string }; request: Request }): Promise<Response> {
+  const auth = requireAdmin(context.request, context.env);
+  if (auth) return auth;
   try {
     await ensureCustomOrdersSchema(context.env.DB);
     const columns = await getCustomOrdersColumns(context.env.DB);
@@ -69,7 +73,9 @@ export async function onRequestGet(context: { env: { DB: D1Database } }): Promis
   }
 }
 
-export async function onRequestPost(context: { env: { DB: D1Database }; request: Request }): Promise<Response> {
+export async function onRequestPost(context: { env: { DB: D1Database; ADMIN_PASSWORD?: string }; request: Request }): Promise<Response> {
+  const auth = requireAdmin(context.request, context.env);
+  if (auth) return auth;
   try {
     await ensureCustomOrdersSchema(context.env.DB);
     const columns = await getCustomOrdersColumns(context.env.DB);

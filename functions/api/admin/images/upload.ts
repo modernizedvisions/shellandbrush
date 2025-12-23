@@ -1,4 +1,7 @@
+import { requireAdmin } from '../../../_lib/adminAuth';
+
 type Env = {
+  ADMIN_PASSWORD?: string;
   IMAGES_BUCKET?: R2Bucket;
   PUBLIC_IMAGES_BASE_URL?: string;
 };
@@ -10,7 +13,7 @@ const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const corsHeaders = (request?: Request | null) => ({
   'Access-Control-Allow-Origin': request?.headers.get('Origin') || '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Password',
 });
 
 const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -37,8 +40,10 @@ const extensionForMime = (mime: string) => {
   }
 };
 
-export async function onRequestOptions(context: { request: Request }): Promise<Response> {
-  const { request } = context;
+export async function onRequestOptions(context: { request: Request; env: Env }): Promise<Response> {
+  const { request, env } = context;
+  const auth = requireAdmin(request, env);
+  if (auth) return auth;
   console.log('[images/upload] handler', {
     handler: 'OPTIONS',
     method: request.method,
@@ -55,8 +60,10 @@ export async function onRequestOptions(context: { request: Request }): Promise<R
   });
 }
 
-export async function onRequestGet(context: { request: Request }): Promise<Response> {
-  const { request } = context;
+export async function onRequestGet(context: { request: Request; env: Env }): Promise<Response> {
+  const { request, env } = context;
+  const auth = requireAdmin(request, env);
+  if (auth) return auth;
   console.log('[images/upload] handler', {
     handler: 'GET',
     method: request.method,
@@ -77,6 +84,8 @@ export async function onRequestGet(context: { request: Request }): Promise<Respo
 
 export async function onRequestPost(context: { request: Request; env: Env }): Promise<Response> {
   const { request, env } = context;
+  const auth = requireAdmin(request, env);
+  if (auth) return auth;
   const contentType = request.headers.get('content-type') || '';
   const contentLength = request.headers.get('content-length') || '';
 
