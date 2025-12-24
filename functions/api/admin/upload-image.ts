@@ -1,4 +1,4 @@
-import { requireAdmin } from '../../../_lib/adminAuth';
+import { requireAdmin } from '../_lib/adminAuth';
 
 // Stub upload endpoint to be replaced with real storage (e.g., R2 or Cloudflare Images).
 export async function onRequestPost(context: { request: Request; env: { ADMIN_PASSWORD?: string } }): Promise<Response> {

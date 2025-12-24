@@ -1,4 +1,4 @@
-import { requireAdmin } from '../../../_lib/adminAuth';
+import { requireAdmin } from '../_lib/adminAuth';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
