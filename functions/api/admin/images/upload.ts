@@ -1,4 +1,4 @@
-import { requireAdmin } from '../../../_lib/adminAuth';
+import { requireAdmin } from '../../_lib/adminAuth';
 
 type Env = {
   ADMIN_PASSWORD?: string;

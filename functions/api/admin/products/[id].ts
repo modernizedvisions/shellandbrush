@@ -1,5 +1,5 @@
 import type { Product } from '../../../../src/lib/types';
-import { requireAdmin } from '../../../_lib/adminAuth';
+import { requireAdmin } from '../../_lib/adminAuth';
 
 type D1PreparedStatement = {
   run(): Promise<{ success: boolean; error?: string; meta?: { changes?: number } }>;
