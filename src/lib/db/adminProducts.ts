@@ -5,6 +5,7 @@ import {
   getLocalProducts,
   updateLocalProduct,
 } from './localProducts';
+import { adminFetch } from '../adminAuth';
 
 export type AdminProductInput = {
   name: string;
@@ -45,7 +46,7 @@ const handleResponse = async (response: Response) => {
 
 export async function fetchAdminProducts(): Promise<Product[]> {
   try {
-    const response = await fetch(ADMIN_PRODUCTS_PATH, { headers: { Accept: 'application/json' } });
+    const response = await adminFetch(ADMIN_PRODUCTS_PATH, { headers: { Accept: 'application/json' } });
     const data = await handleResponse(response);
     return Array.isArray(data.products) ? (data.products as Product[]) : [];
   } catch (error) {
@@ -56,7 +57,7 @@ export async function fetchAdminProducts(): Promise<Product[]> {
 
 export async function createAdminProduct(input: AdminProductInput): Promise<Product | null> {
   try {
-    const response = await fetch(ADMIN_PRODUCTS_PATH, {
+    const response = await adminFetch(ADMIN_PRODUCTS_PATH, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(input),
@@ -71,7 +72,7 @@ export async function createAdminProduct(input: AdminProductInput): Promise<Prod
 
 export async function updateAdminProduct(id: string, input: AdminProductUpdateInput): Promise<Product | null> {
   try {
-    const response = await fetch(`${ADMIN_PRODUCTS_PATH}/${id}`, {
+    const response = await adminFetch(`${ADMIN_PRODUCTS_PATH}/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(input),
@@ -86,7 +87,7 @@ export async function updateAdminProduct(id: string, input: AdminProductUpdateIn
 
 export async function deleteAdminProduct(id: string): Promise<void> {
   try {
-    const response = await fetch(`${ADMIN_PRODUCTS_PATH}/${id}`, {
+    const response = await adminFetch(`${ADMIN_PRODUCTS_PATH}/${id}`, {
       method: 'DELETE',
       headers: { Accept: 'application/json' },
     });

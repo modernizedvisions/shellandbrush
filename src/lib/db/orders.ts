@@ -1,3 +1,5 @@
+import { adminFetch } from '../adminAuth';
+
 export type AdminOrderItem = {
   productId: string;
   productName: string | null;
@@ -27,7 +29,7 @@ export async function getAdminOrders(): Promise<AdminOrder[]> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
 
-  const res = await fetch('/api/admin/orders', {
+  const res = await adminFetch('/api/admin/orders', {
     headers: { Accept: 'application/json' },
     cache: 'no-store',
     signal: controller.signal,

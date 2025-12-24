@@ -13,6 +13,12 @@ import {
   adminDeleteProduct,
   adminUploadImage,
 } from '../lib/api';
+import {
+  clearStoredAdminPassword,
+  getAdminAuthStatus,
+  getStoredAdminPassword,
+  setStoredAdminPassword,
+} from '../lib/adminAuth';
 import { CustomOrdersImage, GalleryImage, HeroCollageImage, HeroConfig, Product } from '../lib/types';
 import type { AdminOrder } from '../lib/db/orders';
 import { AdminOrdersTab } from '../components/admin/AdminOrdersTab';
@@ -82,6 +88,7 @@ export function AdminPage() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [authNotice, setAuthNotice] = useState('');
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
@@ -158,11 +165,30 @@ export function AdminPage() {
   };
 
   useEffect(() => {
-    const token = sessionStorage.getItem('admin_token');
-    if (token) {
-      setIsAuthenticated(true);
-      loadAdminData();
-    }
+    const stored = getStoredAdminPassword();
+    if (!stored) return;
+
+    const verifyStored = async () => {
+      setIsLoading(true);
+      try {
+        const status = await getAdminAuthStatus(stored);
+        if (status.matches) {
+          setIsAuthenticated(true);
+          setAuthNotice('');
+          loadAdminData();
+        } else {
+          clearStoredAdminPassword();
+          setIsAuthenticated(false);
+          setAuthNotice('Admin password incorrect — update it.');
+        }
+      } catch (err) {
+        setAuthNotice('Unable to verify admin password. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void verifyStored();
   }, []);
 
   useEffect(() => {
@@ -177,11 +203,12 @@ export function AdminPage() {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+    setAuthNotice('');
 
     try {
       const result = await verifyAdminPassword(password);
       if (result) {
-        sessionStorage.setItem('admin_token', 'demo_token');
+        setStoredAdminPassword(password);
         setIsAuthenticated(true);
         loadAdminData();
       } else {
@@ -268,7 +295,7 @@ export function AdminPage() {
   };
 
   const handleLogout = () => {
-    sessionStorage.removeItem('admin_token');
+    clearStoredAdminPassword();
     setIsAuthenticated(false);
     setPassword('');
   };
@@ -856,6 +883,11 @@ export function AdminPage() {
             {error && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
                 {error}
+              </div>
+            )}
+            {authNotice && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+                {authNotice}
               </div>
             )}
             <button

@@ -1,3 +1,5 @@
+import { adminFetch } from '../adminAuth';
+
 export type AdminCustomOrder = {
   id: string;
   displayCustomOrderId: string;
@@ -22,7 +24,7 @@ export async function getAdminCustomOrders(): Promise<AdminCustomOrder[]> {
     console.debug('[admin custom orders] fetching', { url });
   }
 
-  const res = await fetch(url, {
+  const res = await adminFetch(url, {
     headers: { Accept: 'application/json' },
     cache: 'no-store',
     signal: controller.signal,
@@ -64,7 +66,7 @@ export async function createAdminCustomOrder(payload: {
   amount?: number;
   messageId?: string | null;
 }): Promise<AdminCustomOrder> {
-  const res = await fetch(ADMIN_CUSTOM_ORDERS_PATH, {
+  const res = await adminFetch(ADMIN_CUSTOM_ORDERS_PATH, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -111,7 +113,7 @@ export async function updateAdminCustomOrder(
     messageId: string | null;
   }>
 ): Promise<void> {
-  const res = await fetch(`${ADMIN_CUSTOM_ORDERS_PATH}/${encodeURIComponent(id)}`, {
+  const res = await adminFetch(`${ADMIN_CUSTOM_ORDERS_PATH}/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -132,7 +134,7 @@ export async function updateAdminCustomOrder(
 export async function sendAdminCustomOrderPaymentLink(
   id: string
 ): Promise<{ paymentLink: string; sessionId: string; emailOk?: boolean }> {
-  const res = await fetch(`${ADMIN_CUSTOM_ORDERS_PATH}/${encodeURIComponent(id)}/send-payment-link`, {
+  const res = await adminFetch(`${ADMIN_CUSTOM_ORDERS_PATH}/${encodeURIComponent(id)}/send-payment-link`, {
     method: 'POST',
     headers: {
       Accept: 'application/json',

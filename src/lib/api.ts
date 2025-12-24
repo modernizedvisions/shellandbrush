@@ -21,6 +21,7 @@ import { getReviewsForProduct } from './db/reviews';
 import { createEmbeddedCheckoutSession, fetchCheckoutSession } from './payments/checkout';
 import { sendContactEmail } from './contact';
 import { verifyAdminPassword } from './auth';
+import { adminFetch } from './adminAuth';
 import type { Category } from './types';
 
 // Aggregates the mock data layer and stubs so the UI can continue working while we
@@ -100,14 +101,14 @@ export async function fetchCategories(): Promise<Category[]> {
 const ADMIN_CATEGORIES_PATH = '/api/admin/categories';
 
 export async function adminFetchCategories(): Promise<Category[]> {
-  const response = await fetch(ADMIN_CATEGORIES_PATH, { headers: { Accept: 'application/json' } });
+  const response = await adminFetch(ADMIN_CATEGORIES_PATH, { headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error(`Admin categories fetch failed: ${response.status}`);
   const data = await response.json();
   return Array.isArray(data.categories) ? (data.categories as Category[]) : [];
 }
 
 export async function adminCreateCategory(name: string): Promise<Category | null> {
-  const response = await fetch(ADMIN_CATEGORIES_PATH, {
+  const response = await adminFetch(ADMIN_CATEGORIES_PATH, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ name }),
@@ -118,7 +119,7 @@ export async function adminCreateCategory(name: string): Promise<Category | null
 }
 
 export async function adminUpdateCategory(id: string, updates: Partial<Category>): Promise<Category | null> {
-  const response = await fetch(`${ADMIN_CATEGORIES_PATH}?id=${encodeURIComponent(id)}`, {
+  const response = await adminFetch(`${ADMIN_CATEGORIES_PATH}?id=${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(updates),
@@ -129,7 +130,7 @@ export async function adminUpdateCategory(id: string, updates: Partial<Category>
 }
 
 export async function adminDeleteCategory(id: string): Promise<void> {
-  const response = await fetch(`${ADMIN_CATEGORIES_PATH}?id=${encodeURIComponent(id)}`, {
+  const response = await adminFetch(`${ADMIN_CATEGORIES_PATH}?id=${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: { Accept: 'application/json' },
   });
@@ -155,7 +156,7 @@ export async function adminUploadImage(file: File): Promise<{ id: string; url: s
     fileType: file.type,
   });
 
-  const response = await fetch(url, {
+  const response = await adminFetch(url, {
     method,
     headers: { 'X-Upload-Request-Id': rid },
     body: form,
@@ -186,7 +187,7 @@ export async function adminUploadImage(file: File): Promise<{ id: string; url: s
 }
 
 export async function adminDeleteMessage(id: string): Promise<void> {
-  const response = await fetch(`/api/admin/messages/${encodeURIComponent(id)}`, {
+  const response = await adminFetch(`/api/admin/messages/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: { Accept: 'application/json' },
   });

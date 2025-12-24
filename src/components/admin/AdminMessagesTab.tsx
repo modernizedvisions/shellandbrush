@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { adminDeleteMessage } from '../../lib/api';
+import { adminFetch } from '../../lib/adminAuth';
 import { AdminSectionHeader } from './AdminSectionHeader';
 
 interface AdminMessage {
@@ -44,7 +45,7 @@ export const AdminMessagesTab: React.FC<AdminMessagesTabProps> = ({ onCreateCust
       try {
         setIsLoading(true);
         setError(null);
-        const res = await fetch('/api/admin/messages');
+        const res = await adminFetch('/api/admin/messages');
         if (!res.ok) throw new Error('Failed to load messages');
         const json = await res.json();
         let incoming: AdminMessage[];
