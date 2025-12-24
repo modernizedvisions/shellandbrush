@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "d1:migrate": "wrangler d1 execute chesapeake_shell_db --file=db/schema.sql && wrangler d1 execute chesapeake_shell_db --file=db/migrations/001_add_product_fields.sql",
-    "cf:dev": "npm run build && wrangler pages dev dist",\n    "verify:functions": "node scripts/verify-adminauth-paths.mjs"
+    "cf:dev": "npm run build && wrangler pages dev dist",
+    "verify:functions": "node scripts/verify-adminauth-paths.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
