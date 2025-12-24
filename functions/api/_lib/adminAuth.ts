@@ -21,7 +21,7 @@ export function requireAdmin(req: Request, env: Env, opts?: RequireAdminOptions)
     if (shouldLog) {
       console.warn('[requireAdmin] missing env ADMIN_PASSWORD');
     }
-    return json({ error: 'ADMIN_PASSWORD not configured' }, 500);
+    return json({ error: 'Admin not configured' }, 401);
   }
 
   if (!provided) {
