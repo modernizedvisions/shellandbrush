@@ -1,9 +1,20 @@
 import { requireAdmin } from '../../_lib/adminAuth';
 
+type D1PreparedStatement = {
+  run(): Promise<{ success: boolean; error?: string }>;
+  bind(...values: unknown[]): D1PreparedStatement;
+};
+
+type D1Database = {
+  prepare(query: string): D1PreparedStatement;
+};
+
 type Env = {
   ADMIN_PASSWORD?: string;
   IMAGES_BUCKET?: R2Bucket;
+  MV_IMAGES?: R2Bucket;
   PUBLIC_IMAGES_BASE_URL?: string;
+  DB?: D1Database;
 };
 
 const BUILD_FINGERPRINT = 'upload-fingerprint-2025-12-21-a';
@@ -13,7 +24,7 @@ const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const corsHeaders = (request?: Request | null) => ({
   'Access-Control-Allow-Origin': request?.headers.get('Origin') || '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Password',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Password, X-Upload-Request-Id',
 });
 
 const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -98,18 +109,23 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
   });
 
   try {
-    if (!env.IMAGES_BUCKET || !env.PUBLIC_IMAGES_BASE_URL) {
+    const bucket = env.IMAGES_BUCKET || env.MV_IMAGES;
+    if (!bucket || !env.PUBLIC_IMAGES_BASE_URL) {
       return json(
         withFingerprint({
           error: 'Missing R2 configuration',
           envPresent: {
             IMAGES_BUCKET: !!env.IMAGES_BUCKET,
+            MV_IMAGES: !!env.MV_IMAGES,
             PUBLIC_IMAGES_BASE_URL: !!env.PUBLIC_IMAGES_BASE_URL,
           },
         }),
         500,
         corsHeaders(request)
       );
+    }
+    if (!env.DB) {
+      return json(withFingerprint({ error: 'Missing D1 binding', details: 'DB not configured' }), 500, corsHeaders(request));
     }
 
     if (!contentType.toLowerCase().includes('multipart/form-data')) {
@@ -169,14 +185,11 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
       size: file.size,
     });
 
-    const now = new Date();
-    const year = now.getUTCFullYear();
-    const month = String(now.getUTCMonth() + 1).padStart(2, '0');
     const ext = extensionForMime(file.type);
-    const key = `chesapeake-shell/${year}/${month}/${crypto.randomUUID()}.${ext}`;
+    const storageKey = `${crypto.randomUUID()}.${ext}`;
 
     try {
-      await env.IMAGES_BUCKET.put(key, file.stream(), {
+      await bucket.put(storageKey, file.stream(), {
         httpMetadata: { contentType: file.type },
         customMetadata: { originalName: file.name },
       });
@@ -189,13 +202,72 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
       );
     }
 
-    const baseUrl = env.PUBLIC_IMAGES_BASE_URL.replace(/\/$/, '');
-    const url = `${baseUrl}/${key}`;
+    let baseUrl = env.PUBLIC_IMAGES_BASE_URL.replace(/\/$/, '');
+    if (request.url.startsWith('https://') && baseUrl.startsWith('http://')) {
+      baseUrl = `https://${baseUrl.slice('http://'.length)}`;
+    }
+    const publicUrl = `${baseUrl}/${storageKey}`;
+    const uploadRequestId =
+      new URL(request.url).searchParams.get('rid') ||
+      request.headers.get('x-upload-request-id') ||
+      null;
+
+    const entityType = (form.get('entityType') || new URL(request.url).searchParams.get('entityType')) as string | null;
+    const entityId = (form.get('entityId') || new URL(request.url).searchParams.get('entityId')) as string | null;
+    const kind = (form.get('kind') || new URL(request.url).searchParams.get('kind')) as string | null;
+    const isPrimaryRaw = (form.get('isPrimary') || new URL(request.url).searchParams.get('isPrimary')) as
+      | string
+      | null;
+    const sortOrderRaw = (form.get('sortOrder') || new URL(request.url).searchParams.get('sortOrder')) as
+      | string
+      | null;
+    const isPrimary = isPrimaryRaw ? (isPrimaryRaw === '1' || isPrimaryRaw.toLowerCase() === 'true' ? 1 : 0) : 0;
+    const sortOrder = Number.isFinite(Number(sortOrderRaw)) ? Number(sortOrderRaw) : 0;
+    const imageId = crypto.randomUUID();
+
+    try {
+      await env.DB.prepare(
+        `INSERT INTO images (
+          id, storage_provider, storage_key, public_url, content_type, size_bytes, original_filename,
+          entity_type, entity_id, kind, is_primary, sort_order, upload_request_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+      )
+        .bind(
+          imageId,
+          'r2',
+          storageKey,
+          publicUrl,
+          file.type || null,
+          file.size || null,
+          file.name || null,
+          entityType || null,
+          entityId || null,
+          kind || null,
+          isPrimary,
+          sortOrder,
+          uploadRequestId
+        )
+        .run();
+    } catch (err) {
+      console.error('[images/upload] D1 insert failed', err);
+      return json(
+        withFingerprint({ error: 'Image upload failed', details: 'DB insert error' }),
+        500,
+        corsHeaders(request)
+      );
+    }
 
     return json(
       withFingerprint({
-        id: key,
-        url,
+        image: {
+          id: imageId,
+          storageKey,
+          publicUrl,
+          contentType: file.type || null,
+          sizeBytes: file.size || null,
+          originalFilename: file.name || null,
+          uploadRequestId,
+        },
       }),
       200,
       corsHeaders(request)

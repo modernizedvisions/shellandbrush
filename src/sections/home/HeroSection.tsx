@@ -1,10 +1,31 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { fetchHomeHeroConfig } from '../../lib/api';
 
 const HERO_IMAGE_SRC = '/images/hero-bg.jpg';
 
 export default function HeroSection() {
   const [imageFailed, setImageFailed] = useState(false);
+  const [heroImageUrl, setHeroImageUrl] = useState<string>(HERO_IMAGE_SRC);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadHero = async () => {
+      try {
+        const config = await fetchHomeHeroConfig();
+        const first = Array.isArray(config?.heroImages) ? config.heroImages.find((img: any) => img?.imageUrl) : null;
+        if (!cancelled && first?.imageUrl) {
+          setHeroImageUrl(first.imageUrl);
+        }
+      } catch {
+        // Keep fallback image on failure.
+      }
+    };
+    void loadHero();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleScrollToFeatured = (event: React.MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
@@ -54,7 +75,7 @@ export default function HeroSection() {
                   </div>
                 ) : (
                   <img
-                    src={HERO_IMAGE_SRC}
+                    src={heroImageUrl}
                     alt="Artist holding artwork"
                     className="h-full w-full object-cover"
                     onError={() => setImageFailed(true)}

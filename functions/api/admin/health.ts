@@ -46,6 +46,7 @@ export async function onRequestGet(context: { request: Request; env: Env }): Pro
   const hasR2Binding = !!context.env.IMAGES_BUCKET || !!context.env.MV_IMAGES;
   const hasCloudflareImagesConfig = !!context.env.CLOUDFLARE_ACCOUNT_ID && !!context.env.CLOUDFLARE_IMAGES_API_TOKEN;
   const modeDetected = hasR2Binding ? 'r2' : hasCloudflareImagesConfig ? 'cloudflare-images' : 'unknown';
+  const bucketBinding = context.env.IMAGES_BUCKET ? 'IMAGES_BUCKET' : context.env.MV_IMAGES ? 'MV_IMAGES' : null;
 
   const body = {
     ok: true,
@@ -70,6 +71,7 @@ export async function onRequestGet(context: { request: Request; env: Env }): Pro
     uploads: {
       modeDetected,
       hasR2Binding,
+      bucketBinding,
       hasCloudflareImagesConfig,
     },
   };

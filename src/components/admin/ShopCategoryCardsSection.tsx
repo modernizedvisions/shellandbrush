@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
-import { fetchShopCategoryTiles, saveShopCategoryTiles, adminUpdateCategory } from '../../lib/api';
+import { fetchShopCategoryTiles, saveShopCategoryTiles, adminUpdateCategory, adminUploadImage } from '../../lib/api';
 import type { Category, ShopCategoryTile } from '../../lib/types';
 import { AdminSectionHeader } from './AdminSectionHeader';
 
@@ -16,6 +16,8 @@ export function ShopCategoryCardsSection({ categories = [], onCategoryUpdated }:
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success'>('idle');
   const [activeTileId, setActiveTileId] = useState<string | null>(null);
   const [categoryState, setCategoryState] = useState<Category[]>(categories);
+  const [uploadingTiles, setUploadingTiles] = useState<Record<string, boolean>>({});
+  const [uploadErrors, setUploadErrors] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -70,35 +72,45 @@ export function ShopCategoryCardsSection({ categories = [], onCategoryUpdated }:
     );
   };
 
-  const handleTileImageSelect = (file: File, tileId: string) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      if (typeof reader.result !== 'string') return;
-      const tile = tiles.find((t) => t.id === tileId);
-      const resolvedCategory = tile ? resolveCategoryForTile(tile) : undefined;
-      const categoryId = resolvedCategory?.id;
-      if (!categoryId) {
-        alert('Please select a category before uploading an image.');
-        return;
-      }
-      const imageUrl = reader.result as string;
-      // Optimistically update local category hero image
-      setCategoryState((prev) =>
-        prev.map((cat) => (cat.id === categoryId ? { ...cat, heroImageUrl: imageUrl } : cat))
-      );
+  const handleTileImageSelect = async (file: File, tileId: string) => {
+    const tile = tiles.find((t) => t.id === tileId);
+    const resolvedCategory = tile ? resolveCategoryForTile(tile) : undefined;
+    const categoryId = resolvedCategory?.id;
+    if (!categoryId) {
+      alert('Please select a category before uploading an image.');
+      return;
+    }
 
-      try {
-        const updated = await adminUpdateCategory(categoryId, { heroImageUrl: imageUrl });
-        if (updated) {
-          setCategoryState((prev) => prev.map((cat) => (cat.id === updated.id ? { ...cat, ...updated } : cat)));
-          onCategoryUpdated?.(updated);
-        }
-      } catch (err) {
-        console.error('Failed to update category hero image', err);
-        alert('Failed to save image. Please try again.');
+    setUploadingTiles((prev) => ({ ...prev, [tileId]: true }));
+    setUploadErrors((prev) => ({ ...prev, [tileId]: '' }));
+    const previewUrl = URL.createObjectURL(file);
+
+    // Optimistically update local category hero image preview
+    setCategoryState((prev) =>
+      prev.map((cat) => (cat.id === categoryId ? { ...cat, heroImageUrl: previewUrl } : cat))
+    );
+
+    try {
+      const result = await adminUploadImage(file, {
+        entityType: 'category',
+        entityId: categoryId,
+        kind: 'hero',
+      });
+      URL.revokeObjectURL(previewUrl);
+      const updated = await adminUpdateCategory(categoryId, { heroImageId: result.id });
+      if (updated) {
+        setCategoryState((prev) => prev.map((cat) => (cat.id === updated.id ? { ...cat, ...updated } : cat)));
+        onCategoryUpdated?.(updated);
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Failed to update category hero image', err);
+      setUploadErrors((prev) => ({
+        ...prev,
+        [tileId]: err instanceof Error ? err.message : 'Upload failed',
+      }));
+    } finally {
+      setUploadingTiles((prev) => ({ ...prev, [tileId]: false }));
+    }
   };
 
   const handleSave = async () => {
@@ -241,22 +253,30 @@ export function ShopCategoryCardsSection({ categories = [], onCategoryUpdated }:
                 </div>
               </div>
 
-              <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-gray-100 aspect-[3/4]">
-                {categoryImage ? (
-                  <img src={categoryImage} alt={displayLabel} className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-sm text-gray-500">
-                    No image uploaded
-                  </div>
-                )}
+                <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-gray-100 aspect-[3/4]">
+                  {categoryImage ? (
+                    <img src={categoryImage} alt={displayLabel} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-sm text-gray-500">
+                      No image uploaded
+                    </div>
+                  )}
+                  {uploadingTiles[tile.id] && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs text-white">
+                      Uploading...
+                    </div>
+                  )}
 
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/55 to-transparent" />
-                <div className="absolute inset-x-0 bottom-4 flex justify-center">
-                  <span className="pointer-events-auto inline-flex items-center rounded-full bg-white px-5 py-2 text-xs font-medium text-gray-900 shadow-sm">
-                    {pillText}
-                  </span>
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/55 to-transparent" />
+                  <div className="absolute inset-x-0 bottom-4 flex justify-center">
+                    <span className="pointer-events-auto inline-flex items-center rounded-full bg-white px-5 py-2 text-xs font-medium text-gray-900 shadow-sm">
+                      {pillText}
+                    </span>
+                  </div>
                 </div>
-              </div>
+                {uploadErrors[tile.id] && (
+                  <div className="text-xs text-red-600">{uploadErrors[tile.id]}</div>
+                )}
             </div>
           );
         })}

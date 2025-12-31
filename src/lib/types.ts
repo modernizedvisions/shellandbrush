@@ -6,6 +6,8 @@ export interface Product {
   description: string;
   imageUrls: string[];
   imageUrl: string;
+  primaryImageId?: string;
+  imageIds?: string[];
   thumbnailUrl?: string;
   type: string;
   /**
@@ -64,24 +66,33 @@ export interface Order {
 export interface GalleryImage {
   id: string;
   imageUrl: string;
+  imageId?: string;
   hidden: boolean;
   alt?: string;
   title?: string;
   position?: number;
   createdAt?: string;
+  uploading?: boolean;
+  uploadError?: string;
 }
 
 // Collage images for the homepage hero
 export interface HeroCollageImage {
   id: string;
   imageUrl: string;
+  imageId?: string;
   alt?: string;
   createdAt?: string;
+  uploading?: boolean;
+  uploadError?: string;
 }
 
 export interface CustomOrdersImage {
   imageUrl: string;
+  imageId?: string;
   alt?: string;
+  uploading?: boolean;
+  uploadError?: string;
 }
 
 export interface HeroConfig {
@@ -96,6 +107,8 @@ export interface Category {
   slug: string;
   imageUrl?: string;
   heroImageUrl?: string;
+  imageId?: string;
+  heroImageId?: string;
   showOnHomePage: boolean;
 }
 

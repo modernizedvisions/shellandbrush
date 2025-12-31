@@ -13,6 +13,7 @@ type GalleryRow = {
   id: string;
   url?: string | null;
   image_url: string | null;
+  image_id?: string | null;
   alt_text?: string | null;
   is_active?: number | null;
   position?: number | null;
@@ -26,6 +27,7 @@ const createGalleryTable = `
     id TEXT PRIMARY KEY,
     url TEXT NOT NULL,
     image_url TEXT,
+    image_id TEXT,
     alt_text TEXT,
     hidden INTEGER NOT NULL DEFAULT 0,
     is_active INTEGER DEFAULT 1,
@@ -34,6 +36,17 @@ const createGalleryTable = `
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 `;
+
+const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
+  const unique = Array.from(new Set(ids.filter(Boolean)));
+  if (!unique.length) return new Map();
+  const placeholders = unique.map(() => '?').join(', ');
+  const { results } = await db
+    .prepare(`SELECT id, public_url FROM images WHERE id IN (${placeholders});`)
+    .bind(...unique)
+    .all<{ id: string; public_url: string }>();
+  return new Map((results || []).map((row) => [row.id, row.public_url]));
+};
 
 export async function onRequestGet(context: { env: { DB?: D1Database }; request: Request }): Promise<Response> {
   try {
@@ -45,14 +58,17 @@ export async function onRequestGet(context: { env: { DB?: D1Database }; request:
     const schemaInfo = await ensureGallerySchema(db);
     const { results } = await db
       .prepare(
-        `SELECT id, url, image_url, alt_text, hidden, is_active, sort_order, position, created_at
+        `SELECT id, url, image_url, image_id, alt_text, hidden, is_active, sort_order, position, created_at
          FROM gallery_images
          WHERE hidden = 0 OR hidden IS NULL
          ORDER BY sort_order ASC, created_at ASC;`
       )
       .all<GalleryRow>();
 
-    const images = (results || []).map((row) => mapRowToImage(row, schemaInfo)).filter(Boolean);
+    const rows = results || [];
+    const imageIds = rows.map((row) => row.image_id || '').filter(Boolean);
+    const imageUrlMap = await fetchImageUrlMap(db, imageIds);
+    const images = rows.map((row) => mapRowToImage(row, schemaInfo, imageUrlMap)).filter(Boolean);
     console.log('[api/gallery][get] fetched', { count: images.length });
 
     return new Response(JSON.stringify({ images }), {
@@ -96,11 +112,13 @@ export async function onRequestPut(context: { env: { DB?: D1Database }; request:
 
     const normalized = images
       .map((img: any, idx: number) => {
+        const imageId = typeof img?.imageId === 'string' ? img.imageId : null;
         const url = typeof img?.imageUrl === 'string' ? img.imageUrl : typeof img?.url === 'string' ? img.url : null;
-        if (!url) return null;
+        if (!url && !imageId) return null;
         return {
           id: img.id || safeId(`gallery-${idx}`),
-          url,
+          url: url || '',
+          imageId,
           alt: img.alt || img.title || null,
           hidden: !!img.hidden,
           sortOrder: Number.isFinite(img.position) ? Number(img.position) : idx,
@@ -116,18 +134,21 @@ export async function onRequestPut(context: { env: { DB?: D1Database }; request:
       createdAt: string;
     }[];
 
+    const imageIds = normalized.map((img) => img.imageId || '').filter(Boolean);
+    const imageUrlMap = await fetchImageUrlMap(db, imageIds);
     const statements = [
       db.prepare(`DELETE FROM gallery_images;`),
       ...normalized.map((img) =>
         db
           .prepare(
-            `INSERT INTO gallery_images (id, url, image_url, alt_text, hidden, is_active, sort_order, position, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`
+            `INSERT INTO gallery_images (id, url, image_url, image_id, alt_text, hidden, is_active, sort_order, position, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
           )
           .bind(
             img.id,
-            img.url,
-            img.url,
+            img.imageId ? imageUrlMap.get(img.imageId) || img.url : img.url,
+            img.imageId ? imageUrlMap.get(img.imageId) || img.url : img.url,
+            img.imageId,
             img.alt,
             img.hidden ? 1 : 0,
             img.hidden ? 0 : 1,
@@ -150,15 +171,17 @@ export async function onRequestPut(context: { env: { DB?: D1Database }; request:
       for (let i = 0; i < normalized.length; i++) {
         const img = normalized[i];
         try {
+          const resolvedUrl = img.imageId ? imageUrlMap.get(img.imageId) || img.url : img.url;
           await db
             .prepare(
-              `INSERT INTO gallery_images (id, url, image_url, alt_text, hidden, is_active, sort_order, position, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`
+              `INSERT INTO gallery_images (id, url, image_url, image_id, alt_text, hidden, is_active, sort_order, position, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
             )
             .bind(
               img.id,
-              img.url,
-              img.url,
+              resolvedUrl,
+              resolvedUrl,
+              img.imageId,
               img.alt,
               img.hidden ? 1 : 0,
               img.hidden ? 0 : 1,
@@ -180,13 +203,18 @@ export async function onRequestPut(context: { env: { DB?: D1Database }; request:
 
     const refreshed = await db
       .prepare(
-        `SELECT id, url, image_url, alt_text, hidden, is_active, sort_order, position, created_at
+        `SELECT id, url, image_url, image_id, alt_text, hidden, is_active, sort_order, position, created_at
          FROM gallery_images
          ORDER BY sort_order ASC, created_at ASC;`
       )
       .all<GalleryRow>();
 
-    const savedImages = (refreshed.results || []).map((row) => mapRowToImage(row, schemaInfo)).filter(Boolean);
+    const refreshedRows = refreshed.results || [];
+    const refreshedIds = refreshedRows.map((row) => row.image_id || '').filter(Boolean);
+    const refreshedUrlMap = await fetchImageUrlMap(db, refreshedIds);
+    const savedImages = refreshedRows
+      .map((row) => mapRowToImage(row, schemaInfo, refreshedUrlMap))
+      .filter(Boolean);
     const countRow = await db.prepare(`SELECT COUNT(*) as c FROM gallery_images;`).first<{ c: number }>();
     console.log('[api/gallery] saved', {
       count: savedImages.length,
@@ -208,15 +236,16 @@ export async function onRequestPut(context: { env: { DB?: D1Database }; request:
 // Allow POST as a convenience in case clients mis-send the verb.
 export const onRequestPost = onRequestPut;
 
-function mapRowToImage(row: GalleryRow | null | undefined, _schema: SchemaInfo) {
+function mapRowToImage(row: GalleryRow | null | undefined, _schema: SchemaInfo, imageUrlMap: Map<string, string>) {
   if (!row?.id) return null;
-  const url = row.url || row.image_url;
+  const url = row.image_id ? imageUrlMap.get(row.image_id) || row.url || row.image_url : row.url || row.image_url;
   if (!url) return null;
   const hidden = row.hidden !== undefined && row.hidden !== null ? row.hidden === 1 : row.is_active === 0;
   const position = Number.isFinite(row.sort_order) ? (row.sort_order as number) : row.position ?? 0;
   return {
     id: row.id,
     imageUrl: url,
+    imageId: row.image_id || undefined,
     alt: row.alt_text || undefined,
     title: row.alt_text || undefined,
     hidden,
@@ -247,6 +276,7 @@ async function ensureGallerySchema(db: D1Database): Promise<SchemaInfo> {
 
   await addColumnIfMissing('url', 'url TEXT');
   await addColumnIfMissing('image_url', 'image_url TEXT');
+  await addColumnIfMissing('image_id', 'image_id TEXT');
   await addColumnIfMissing('alt_text', 'alt_text TEXT');
   await addColumnIfMissing('hidden', 'hidden INTEGER NOT NULL DEFAULT 0');
   await addColumnIfMissing('is_active', 'is_active INTEGER DEFAULT 1');

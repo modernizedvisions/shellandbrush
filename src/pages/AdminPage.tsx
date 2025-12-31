@@ -12,6 +12,7 @@ import {
   adminUpdateProduct,
   adminDeleteProduct,
   adminUploadImage,
+  adminDeleteImage,
 } from '../lib/api';
 import {
   clearStoredAdminPassword,
@@ -59,9 +60,10 @@ export type ShopImage = {
   isNew?: boolean;
   uploading?: boolean;
   uploadError?: string;
-  cloudflareId?: string;
+  imageId?: string;
   previewUrl?: string;
   needsMigration?: boolean;
+  sortOrder?: number;
 };
 
 export type ManagedImage = ShopImage;
@@ -150,9 +152,25 @@ export function AdminPage() {
   const handleSaveHeroConfig = async () => {
     setHomeSaveState('saving');
     try {
+      const hasUploads =
+        (heroConfig.heroImages || []).some((img) => img?.uploading) ||
+        (heroConfig.customOrdersImages || []).some((img) => img?.uploading);
+      const hasErrors =
+        (heroConfig.heroImages || []).some((img) => img?.uploadError) ||
+        (heroConfig.customOrdersImages || []).some((img) => img?.uploadError);
+      if (hasUploads) {
+        setHomeSaveState('idle');
+        console.error('Cannot save while hero images are uploading.');
+        return;
+      }
+      if (hasErrors) {
+        setHomeSaveState('idle');
+        console.error('Cannot save due to upload errors.');
+        return;
+      }
       const configToSave: HeroConfig = {
-        heroImages: (heroConfig.heroImages || []).slice(0, 3),
-        customOrdersImages: (heroConfig.customOrdersImages || []).slice(0, 4),
+        heroImages: (heroConfig.heroImages || []).filter((img) => !!img?.imageId).slice(0, 3),
+        customOrdersImages: (heroConfig.customOrdersImages || []).filter((img) => !!img?.imageId).slice(0, 4),
         heroRotationEnabled: !!heroConfig.heroRotationEnabled,
       };
       await saveHomeHeroConfig(configToSave);
@@ -366,8 +384,8 @@ export function AdminPage() {
           img.id === id
             ? {
                 ...img,
-                url: result.url,
-                cloudflareId: result.id,
+                url: result.publicUrl,
+                imageId: result.id,
                 file: undefined,
                 uploading: false,
                 uploadError: undefined,
@@ -379,7 +397,7 @@ export function AdminPage() {
       console.debug('[shop images] upload success', {
         id,
         name: file.name,
-        url: result.url,
+        url: result.publicUrl,
       });
       return result;
     } catch (err) {
@@ -507,9 +525,9 @@ export function AdminPage() {
           console.debug('[shop images] upload success', {
             name: file.name,
             id: result.id,
-            url: result.url,
+            url: result.publicUrl,
           });
-          console.debug('[shop images] settled', { name: file.name, ok: true, urlOrError: result.url });
+          console.debug('[shop images] settled', { name: file.name, ok: true, urlOrError: result.publicUrl });
           succeeded += 1;
         } catch (err) {
           failed += 1;
@@ -581,17 +599,29 @@ export function AdminPage() {
     });
   };
 
-  const removeImage = (
+  const removeImage = async (
     id: string,
     setImages: React.Dispatch<React.SetStateAction<ManagedImage[]>>
   ) => {
+    let imageIdToDelete: string | undefined;
     setImages((prev) => {
+      const target = prev.find((img) => img.id === id);
+      if (target?.isNew && target.imageId) {
+        imageIdToDelete = target.imageId;
+      }
       const filtered = prev.filter((img) => img.id !== id);
       if (filtered.length > 0 && !filtered.some((img) => img.isPrimary)) {
         filtered[0].isPrimary = true;
       }
       return filtered;
     });
+    if (imageIdToDelete) {
+      try {
+        await adminDeleteImage(imageIdToDelete);
+      } catch (err) {
+        console.error('Failed to delete image', err);
+      }
+    }
   };
 
   const normalizeImageOrder = (images: ManagedImage[]): ManagedImage[] => {
@@ -600,29 +630,36 @@ export function AdminPage() {
     return [primary, ...images.filter((i) => i.id !== primary.id)];
   };
 
-  const uploadImage = async (file: File): Promise<string> => {
+  const uploadImage = async (file: File): Promise<{ id: string; url: string }> => {
     const result = await adminUploadImage(file);
-    return result.url;
+    return { id: result.id, url: result.publicUrl };
   };
 
-  const resolveImageUrls = async (images: ManagedImage[]): Promise<{ imageUrl: string; imageUrls: string[] }> => {
+  const resolveImageUrls = async (
+    images: ManagedImage[]
+  ): Promise<{ imageUrl: string; imageUrls: string[]; primaryImageId: string; imageIds: string[] }> => {
     const ordered = normalizeImageOrder(images);
     const urls: string[] = [];
 
     for (const img of ordered) {
       if (img.file) {
-        const uploadedUrl = await uploadImage(img.file);
-        urls.push(uploadedUrl);
+        const uploaded = await uploadImage(img.file);
+        urls.push(uploaded.url);
       } else if (img.url) {
         urls.push(img.url);
       }
     }
 
     const primary = urls[0] || '';
-    return { imageUrl: primary, imageUrls: urls };
+    const primaryImageId = ordered[0]?.imageId || '';
+    const orderedIds = ordered.map((img) => img.imageId || '').filter(Boolean);
+    const imageIds = primaryImageId ? orderedIds.filter((id) => id !== primaryImageId) : orderedIds;
+    return { imageUrl: primary, imageUrls: urls, primaryImageId, imageIds };
   };
 
-  const deriveImagePayload = (images: ManagedImage[]): { imageUrl: string; imageUrls: string[] } => {
+  const deriveImagePayload = (
+    images: ManagedImage[]
+  ): { imageUrl: string; imageUrls: string[]; primaryImageId: string; imageIds: string[] } => {
     const normalized = normalizeImageOrder(images);
     const urls = normalized
       .filter((img) => !img.uploading && !img.uploadError)
@@ -631,7 +668,14 @@ export function AdminPage() {
     const unique = Array.from(new Set(urls));
     const primary = unique[0] || '';
     const rest = primary ? unique.filter((url) => url !== primary) : unique;
-    return { imageUrl: primary, imageUrls: rest };
+    const orderedIds = normalized
+      .filter((img) => !img.uploading && !img.uploadError)
+      .map((img) => img.imageId || '')
+      .filter(Boolean);
+    const primaryImageId = normalized[0]?.imageId || '';
+    const uniqueIds = Array.from(new Set(orderedIds));
+    const imageIds = primaryImageId ? uniqueIds.filter((id) => id !== primaryImageId) : uniqueIds;
+    return { imageUrl: primary, imageUrls: rest, primaryImageId, imageIds };
   };
 
   const hasPendingUploads = (images: ManagedImage[]) => images.some((img) => img.uploading);
@@ -647,9 +691,14 @@ export function AdminPage() {
     setEditProductId(product.id);
     setEditProductForm(productToFormState(product));
     const urls = product.imageUrls && product.imageUrls.length > 0 ? product.imageUrls : (product.imageUrl ? [product.imageUrl] : []);
+    const imageIds = [
+      product.primaryImageId || '',
+      ...((product.imageIds || []) as string[]),
+    ].filter(Boolean);
     const managed: ManagedImage[] = urls.map((url, idx) => ({
       id: `${product.id}-${idx}`,
       url,
+      imageId: imageIds[idx],
       isPrimary: idx === 0,
       isNew: false,
       needsMigration: isBlockedImageUrl(url),
@@ -719,12 +768,17 @@ export function AdminPage() {
         throw new Error('Images must be uploaded first (no blob/data URLs).');
       }
       const uploaded = await resolveImageUrls(productImages);
-      const mergedImages = mergeImages(uploaded, manualUrls);
+      const mergedImages = mergeImages(
+        { imageUrl: uploaded.imageUrl, imageUrls: uploaded.imageUrls },
+        manualUrls
+      );
 
       const payload = {
         ...formStateToPayload(productForm),
         imageUrl: mergedImages.imageUrl,
         imageUrls: mergedImages.imageUrls,
+        primaryImageId: uploaded.primaryImageId || undefined,
+        imageIds: uploaded.imageIds.length ? uploaded.imageIds : undefined,
       };
 
       const payloadBytes = new Blob([JSON.stringify(payload)]).size;
@@ -803,6 +857,8 @@ export function AdminPage() {
         ...formStateToPayload(editProductForm),
         imageUrl: mergedImages.imageUrl || '',
         imageUrls: mergedImages.imageUrls,
+        primaryImageId: mergedImages.primaryImageId || undefined,
+        imageIds: mergedImages.imageIds.length ? mergedImages.imageIds : undefined,
       };
 
       const payloadBytes = new Blob([JSON.stringify(payload)]).size;

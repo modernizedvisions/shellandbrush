@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS products (
   category TEXT,
   image_url TEXT,
   image_urls_json TEXT,
+  primary_image_id TEXT,
+  image_ids_json TEXT,
   is_active INTEGER DEFAULT 1,
   is_one_off INTEGER DEFAULT 1,
   is_sold INTEGER DEFAULT 0,
@@ -35,12 +37,35 @@ CREATE TABLE IF NOT EXISTS categories (
   slug TEXT NOT NULL,
   image_url TEXT,
   hero_image_url TEXT,
+  image_id TEXT,
+  hero_image_id TEXT,
   show_on_homepage INTEGER DEFAULT 0,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_categories_slug ON categories(slug);
 CREATE INDEX IF NOT EXISTS idx_categories_name ON categories(name);
+
+-- Images
+CREATE TABLE IF NOT EXISTS images (
+  id TEXT PRIMARY KEY,
+  storage_provider TEXT NOT NULL,
+  storage_key TEXT NOT NULL,
+  public_url TEXT NOT NULL,
+  content_type TEXT,
+  size_bytes INTEGER,
+  original_filename TEXT,
+  entity_type TEXT,
+  entity_id TEXT,
+  kind TEXT,
+  is_primary INTEGER DEFAULT 0,
+  sort_order INTEGER DEFAULT 0,
+  upload_request_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_images_entity ON images(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_images_upload_request ON images(upload_request_id);
 
 -- Orders
 CREATE TABLE IF NOT EXISTS orders (
@@ -164,6 +189,7 @@ CREATE TABLE IF NOT EXISTS gallery_images (
   id TEXT PRIMARY KEY,
   url TEXT NOT NULL,
   image_url TEXT,
+  image_id TEXT,
   alt_text TEXT,
   hidden INTEGER NOT NULL DEFAULT 0,
   is_active INTEGER DEFAULT 1,
@@ -174,6 +200,13 @@ CREATE TABLE IF NOT EXISTS gallery_images (
 
 CREATE INDEX IF NOT EXISTS idx_gallery_images_sort_order ON gallery_images(sort_order);
 CREATE INDEX IF NOT EXISTS idx_gallery_images_created_at ON gallery_images(created_at);
+
+-- Site config
+CREATE TABLE IF NOT EXISTS site_config (
+  id TEXT PRIMARY KEY,
+  config_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
 
 -- Baseline rows
 -- Other Items is enforced as non-deletable by API logic; schema has no dedicated flag.

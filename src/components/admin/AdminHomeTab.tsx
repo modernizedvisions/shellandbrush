@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle, Loader2, Plus } from 'lucide-react';
 import type { Category, CustomOrdersImage, HeroCollageImage } from '../../lib/types';
 import { AdminSectionHeader } from './AdminSectionHeader';
-import { adminFetchCategories } from '../../lib/api';
+import { adminFetchCategories, adminUploadImage } from '../../lib/api';
 import { ShopCategoryCardsSection } from './ShopCategoryCardsSection';
 
 export interface AdminHomeTabProps {
@@ -95,27 +95,56 @@ function HeroCollageAdmin({
   onHeroRotationToggle,
 }: HeroCollageAdminProps) {
   const slots = [0, 1, 2];
+  const hasUploads = images.some((img) => img?.uploading);
 
-  const handleFileSelect = (index: number, file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
+  const handleFileSelect = async (index: number, file: File) => {
+    const previewUrl = URL.createObjectURL(file);
+    const existing = images[index];
+    const id = existing?.id || `hero-${index}-${crypto.randomUUID?.() || Date.now()}`;
+    const buildNext = (overrides: Partial<HeroCollageImage>) =>
+      slots
+        .map((slotIndex) => {
+          if (slotIndex !== index) return images[slotIndex];
+          return {
+            id,
+            imageUrl: previewUrl,
+            imageId: existing?.imageId,
+            alt: existing?.alt,
+            createdAt: existing?.createdAt || new Date().toISOString(),
+            uploading: true,
+            uploadError: undefined,
+            ...overrides,
+          };
+        })
+        .filter((img): img is HeroCollageImage => Boolean(img && img.imageUrl));
+    const next = buildNext({});
+    onChange(next);
+
+    try {
+      const result = await adminUploadImage(file, {
+        entityType: 'home_hero',
+        entityId: 'home',
+        kind: 'hero',
+        sortOrder: index,
+        isPrimary: index === 0,
+      });
+      URL.revokeObjectURL(previewUrl);
       onChange(
-        slots
-          .map((slotIndex) => {
-            if (slotIndex !== index) return images[slotIndex];
-            const existing = images[slotIndex];
-            return {
-              id: existing?.id || `hero-${slotIndex}-${crypto.randomUUID?.() || Date.now()}`,
-              imageUrl: dataUrl,
-              alt: existing?.alt,
-              createdAt: existing?.createdAt || new Date().toISOString(),
-            };
-          })
-          .filter((img): img is HeroCollageImage => Boolean(img && img.imageUrl))
+        buildNext({
+          imageUrl: result.publicUrl,
+          imageId: result.id,
+          uploading: false,
+          uploadError: undefined,
+        })
       );
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      onChange(
+        buildNext({
+          uploading: false,
+          uploadError: err instanceof Error ? err.message : 'Upload failed',
+        })
+      );
+    }
   };
 
   const handleAltChange = (index: number, alt: string) => {
@@ -157,7 +186,7 @@ function HeroCollageAdmin({
         <div className="flex justify-center sm:justify-end">
           <button
             onClick={onSave}
-            disabled={saveState === 'saving'}
+            disabled={saveState === 'saving' || hasUploads}
             className="inline-flex items-center gap-2 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-60"
           >
             {saveState === 'saving' ? (
@@ -220,6 +249,12 @@ function HeroCollageAdmin({
                   </div>
                 )}
               </div>
+              {image?.uploading && (
+                <div className="text-xs text-slate-500">Uploading...</div>
+              )}
+              {image?.uploadError && (
+                <div className="text-xs text-red-600">{image.uploadError}</div>
+              )}
 
               <div className="space-y-1">
                 <label htmlFor={`${inputId}-alt`} className="text-xs font-medium text-slate-700">
@@ -277,16 +312,45 @@ const normalizeCategoriesList = (items: Category[]): Category[] => {
 
 function CustomOrdersImagesAdmin({ images, onChange, onSave, saveState }: CustomOrdersImagesAdminProps) {
   const slots = [0, 1, 2, 3];
+  const hasUploads = images.some((img) => img?.uploading);
 
-  const handleFileSelect = (index: number, file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const next = [...images];
-      next[index] = { ...(next[index] || {}), imageUrl: dataUrl };
-      onChange(next.slice(0, 4));
+  const handleFileSelect = async (index: number, file: File) => {
+    const previewUrl = URL.createObjectURL(file);
+    const next = [...images];
+    next[index] = {
+      ...(next[index] || {}),
+      imageUrl: previewUrl,
+      uploading: true,
+      uploadError: undefined,
     };
-    reader.readAsDataURL(file);
+    onChange(next.slice(0, 4));
+
+    try {
+      const result = await adminUploadImage(file, {
+        entityType: 'home_hero',
+        entityId: 'home',
+        kind: 'custom_orders',
+        sortOrder: index,
+      });
+      URL.revokeObjectURL(previewUrl);
+      const updated = [...next];
+      updated[index] = {
+        ...(updated[index] || {}),
+        imageUrl: result.publicUrl,
+        imageId: result.id,
+        uploading: false,
+        uploadError: undefined,
+      };
+      onChange(updated.slice(0, 4));
+    } catch (err) {
+      const updated = [...next];
+      updated[index] = {
+        ...(updated[index] || {}),
+        uploading: false,
+        uploadError: err instanceof Error ? err.message : 'Upload failed',
+      };
+      onChange(updated.slice(0, 4));
+    }
   };
 
   const handleRemove = (index: number) => {
@@ -305,7 +369,7 @@ function CustomOrdersImagesAdmin({ images, onChange, onSave, saveState }: Custom
         <div className="flex justify-center sm:justify-end">
           <button
             onClick={onSave}
-            disabled={saveState === 'saving'}
+            disabled={saveState === 'saving' || hasUploads}
             className="inline-flex items-center gap-2 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-60"
           >
             {saveState === 'saving' ? (
@@ -368,6 +432,12 @@ function CustomOrdersImagesAdmin({ images, onChange, onSave, saveState }: Custom
                   </div>
                 )}
               </div>
+              {image?.uploading && (
+                <div className="text-xs text-slate-500">Uploading...</div>
+              )}
+              {image?.uploadError && (
+                <div className="text-xs text-red-600">{image.uploadError}</div>
+              )}
 
               <input
                 id={inputId}

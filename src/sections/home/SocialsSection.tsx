@@ -1,5 +1,5 @@
-const TIKTOK_EMBED_URL = 'https://www.tiktok.com/embed/v2/7582267436842487070';
-const INSTAGRAM_EMBED_URL = 'https://www.instagram.com/p/C7u1H_5r0bF/embed';
+const TIKTOK_EMBED_URL = 'https://www.tiktok.com/embed/v2/7534342632328138039';
+const INSTAGRAM_EMBED_URL = 'https://www.instagram.com/reel/DOPL8YYAQsB/embed';
 
 export function SocialsSection() {
   return (

@@ -70,7 +70,7 @@ export function SiteLayout() {
   return (
     <div className="min-h-screen flex flex-col bg-white">
       <header className="bg-white/85 supports-[backdrop-filter]:bg-white/85 supports-[backdrop-filter]:backdrop-blur-md border-b border-black/10 sticky top-0 z-30">
-        <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <nav className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-[48px_1fr_48px] items-center h-20 md:h-24">
             <button
               type="button"
@@ -142,7 +142,7 @@ export function SiteLayout() {
 
       {location.pathname !== '/' && (
         <footer className="bg-white border-t border-gray-200 py-8">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center">
               <p className="text-sm text-gray-500 mb-2">
                 &copy; {new Date().getFullYear()} The Chesapeake Shell. All rights reserved.

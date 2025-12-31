@@ -17,6 +17,8 @@ type CategoryRow = {
   slug: string | null;
   image_url?: string | null;
   hero_image_url?: string | null;
+  image_id?: string | null;
+  hero_image_id?: string | null;
   show_on_homepage?: number | null;
 };
 
@@ -49,6 +51,8 @@ const createCategoriesTable = `
     slug TEXT NOT NULL,
     image_url TEXT,
     hero_image_url TEXT,
+    image_id TEXT,
+    hero_image_id TEXT,
     show_on_homepage INTEGER DEFAULT 0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
@@ -58,6 +62,19 @@ const REQUIRED_CATEGORY_COLUMNS: Record<string, string> = {
   show_on_homepage: 'show_on_homepage INTEGER DEFAULT 0',
   slug: 'slug TEXT',
   hero_image_url: 'hero_image_url TEXT',
+  hero_image_id: 'hero_image_id TEXT',
+  image_id: 'image_id TEXT',
+};
+
+const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
+  const unique = Array.from(new Set(ids.filter(Boolean)));
+  if (!unique.length) return new Map();
+  const placeholders = unique.map(() => '?').join(', ');
+  const { results } = await db
+    .prepare(`SELECT id, public_url FROM images WHERE id IN (${placeholders});`)
+    .bind(...unique)
+    .all<{ id: string; public_url: string }>();
+  return new Map((results || []).map((row) => [row.id, row.public_url]));
 };
 
 export async function onRequestGet(context: { env: { DB: D1Database } }): Promise<Response> {
@@ -67,11 +84,16 @@ export async function onRequestGet(context: { env: { DB: D1Database } }): Promis
     await ensureOtherItemsCategory(context.env.DB);
 
     const { results } = await context.env.DB
-      .prepare(`SELECT id, name, slug, image_url, hero_image_url, show_on_homepage FROM categories`)
+      .prepare(
+        `SELECT id, name, slug, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories`
+      )
       .all<CategoryRow>();
 
+    const rows = results || [];
+    const imageIds = rows.flatMap((row) => [row.image_id || '', row.hero_image_id || '']).filter(Boolean);
+    const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds);
     const categories = orderCategories(
-      (results || []).map(mapRowToCategory).filter((c): c is Category => Boolean(c))
+      rows.map((row) => mapRowToCategory(row, imageUrlMap)).filter((c): c is Category => Boolean(c))
     );
 
     return new Response(JSON.stringify({ categories }), {
@@ -87,14 +109,18 @@ export async function onRequestGet(context: { env: { DB: D1Database } }): Promis
   }
 }
 
-const mapRowToCategory = (row: CategoryRow): Category | null => {
+const mapRowToCategory = (row: CategoryRow, imageUrlMap: Map<string, string>): Category | null => {
   if (!row || !row.id || !row.name || !row.slug) return null;
+  const imageUrl = row.image_id ? imageUrlMap.get(row.image_id) || row.image_url || undefined : row.image_url || undefined;
+  const heroImageUrl = row.hero_image_id
+    ? imageUrlMap.get(row.hero_image_id) || row.hero_image_url || undefined
+    : row.hero_image_url || undefined;
   return {
     id: row.id,
     name: row.name,
     slug: row.slug,
-    imageUrl: row.image_url || undefined,
-    heroImageUrl: row.hero_image_url || undefined,
+    imageUrl,
+    heroImageUrl,
     showOnHomePage: row.show_on_homepage === 1,
   };
 };

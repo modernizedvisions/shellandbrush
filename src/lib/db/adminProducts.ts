@@ -14,6 +14,8 @@ export type AdminProductInput = {
   category: Product['type'];
   imageUrl: string;
   imageUrls?: string[];
+  primaryImageId?: string;
+  imageIds?: string[];
   quantityAvailable?: number;
   isOneOff?: boolean;
   isActive?: boolean;

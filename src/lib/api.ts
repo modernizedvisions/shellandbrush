@@ -12,7 +12,6 @@ import {
 } from './db/adminProducts';
 import {
   getHomeHeroConfig,
-  saveHomeHeroConfig as persistHomeHeroConfig,
   fetchShopCategoryTiles as loadShopCategoryTiles,
   saveShopCategoryTiles as persistShopCategoryTiles,
 } from './db/content';
@@ -36,8 +35,29 @@ export const adminFetchProducts = fetchAdminProducts;
 export const adminCreateProduct = createAdminProduct;
 export const adminUpdateProduct = updateAdminProduct;
 export const adminDeleteProduct = deleteAdminProduct;
-export const fetchHomeHeroConfig = getHomeHeroConfig;
-export const saveHomeHeroConfig = persistHomeHeroConfig;
+export async function fetchHomeHeroConfig() {
+  const response = await fetch('/api/site-config/home', { headers: { Accept: 'application/json' } });
+  if (!response.ok) {
+    console.warn('Home config API responded with', response.status);
+    return getHomeHeroConfig();
+  }
+  const data = await response.json().catch(() => null);
+  return data?.config || getHomeHeroConfig();
+}
+
+export async function saveHomeHeroConfig(config: any) {
+  const response = await adminFetch('/api/admin/site-config/home', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ config }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Save home config failed (${response.status})`);
+  }
+  const data = await response.json().catch(() => null);
+  return data?.config ?? config;
+}
 export const fetchShopCategoryTiles = loadShopCategoryTiles;
 export const saveShopCategoryTiles = persistShopCategoryTiles;
 export const fetchReviewsForProduct = getReviewsForProduct;
@@ -56,6 +76,7 @@ export async function fetchGalleryImages() {
   return data.images.map((img: any, idx: number) => ({
     id: img.id || `gallery-${idx}`,
     imageUrl: img.imageUrl || img.image_url || '',
+    imageId: img.imageId || img.image_id || undefined,
     hidden: !!(img.hidden ?? img.is_active === 0),
     alt: img.alt || img.alt_text,
     title: img.title || img.alt || img.alt_text,
@@ -137,9 +158,33 @@ export async function adminDeleteCategory(id: string): Promise<void> {
   if (!response.ok) throw new Error(`Delete category failed: ${response.status}`);
 }
 
-export async function adminUploadImage(file: File): Promise<{ id: string; url: string }> {
+export type AdminUploadOptions = {
+  entityType?: string;
+  entityId?: string;
+  kind?: string;
+  isPrimary?: boolean;
+  sortOrder?: number;
+};
+
+export async function adminUploadImage(
+  file: File,
+  options: AdminUploadOptions = {}
+): Promise<{
+  id: string;
+  publicUrl: string;
+  storageKey: string;
+  contentType?: string | null;
+  sizeBytes?: number | null;
+  originalFilename?: string | null;
+  uploadRequestId?: string | null;
+}> {
   const form = new FormData();
   form.append('file', file, file.name || 'upload');
+  if (options.entityType) form.append('entityType', options.entityType);
+  if (options.entityId) form.append('entityId', options.entityId);
+  if (options.kind) form.append('kind', options.kind);
+  if (options.isPrimary !== undefined) form.append('isPrimary', options.isPrimary ? '1' : '0');
+  if (options.sortOrder !== undefined) form.append('sortOrder', String(options.sortOrder));
 
   const rid = crypto.randomUUID();
   const url = `/api/admin/images/upload?rid=${encodeURIComponent(rid)}`;
@@ -180,10 +225,30 @@ export async function adminUploadImage(file: File): Promise<{ id: string; url: s
   } catch (err) {
     throw new Error(`Image upload failed rid=${rid} status=${response.status} body=invalid-json`);
   }
-  if (!data?.id || !data?.url) {
+  if (!data?.image?.id || !data?.image?.publicUrl || !data?.image?.storageKey) {
     throw new Error(`Image upload failed rid=${rid} status=${response.status} body=missing-fields`);
   }
-  return { id: data.id, url: data.url };
+  return {
+    id: data.image.id,
+    publicUrl: data.image.publicUrl,
+    storageKey: data.image.storageKey,
+    contentType: data.image.contentType ?? null,
+    sizeBytes: data.image.sizeBytes ?? null,
+    originalFilename: data.image.originalFilename ?? null,
+    uploadRequestId: data.image.uploadRequestId ?? null,
+  };
+}
+
+export async function adminDeleteImage(id: string): Promise<void> {
+  const response = await adminFetch(`/api/admin/images/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    const trimmed = text.length > 500 ? `${text.slice(0, 500)}...` : text;
+    throw new Error(trimmed || `Delete image failed (${response.status})`);
+  }
 }
 
 export async function adminDeleteMessage(id: string): Promise<void> {

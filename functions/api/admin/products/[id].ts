@@ -20,6 +20,8 @@ type ProductRow = {
   category: string | null;
   image_url: string | null;
   image_urls_json?: string | null;
+  primary_image_id?: string | null;
+  image_ids_json?: string | null;
   is_active: number | null;
   is_one_off?: number | null;
   is_sold?: number | null;
@@ -37,6 +39,8 @@ type UpdateProductInput = {
   category?: string;
   imageUrl?: string;
   imageUrls?: string[];
+  primaryImageId?: string | null;
+  imageIds?: string[] | null;
   quantityAvailable?: number;
   isOneOff?: boolean;
   isActive?: boolean;
@@ -45,9 +49,18 @@ type UpdateProductInput = {
   collection?: string;
 };
 
-const mapRowToProduct = (row: ProductRow): Product => {
-  const imageUrls = row.image_urls_json ? safeParseJsonArray(row.image_urls_json) : [];
-  const primaryImage = row.image_url || imageUrls[0] || '';
+const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>): Product => {
+  const imageIds = row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : [];
+  const primaryId = row.primary_image_id || imageIds[0] || '';
+  const primaryFromIds = primaryId ? imageUrlMap.get(primaryId) || '' : '';
+  const extraFromIds = imageIds.map((id) => imageUrlMap.get(id)).filter((url): url is string => !!url);
+  const legacyExtras = row.image_urls_json ? safeParseJsonArray(row.image_urls_json) : [];
+  const legacyPrimary = row.image_url || legacyExtras[0] || '';
+  const primaryImage = primaryFromIds || legacyPrimary || '';
+  const allExtras = primaryFromIds ? extraFromIds : legacyExtras;
+  const resolvedImageUrls = primaryImage
+    ? [primaryImage, ...allExtras.filter((url) => url !== primaryImage)]
+    : allExtras;
 
   return {
     id: row.id,
@@ -55,8 +68,10 @@ const mapRowToProduct = (row: ProductRow): Product => {
     stripePriceId: row.stripe_price_id || undefined,
     name: row.name ?? '',
     description: row.description ?? '',
-    imageUrls: primaryImage ? [primaryImage, ...imageUrls.filter((url) => url !== primaryImage)] : imageUrls,
+    imageUrls: resolvedImageUrls,
     imageUrl: primaryImage,
+    primaryImageId: row.primary_image_id || (imageIds[0] || undefined),
+    imageIds: imageIds.length ? imageIds : undefined,
     thumbnailUrl: primaryImage || undefined,
     type: row.category ?? 'General',
     category: row.category ?? undefined,
@@ -103,6 +118,8 @@ const validateUpdate = (input: UpdateProductInput) => {
 
 const REQUIRED_PRODUCT_COLUMNS: Record<string, string> = {
   image_urls_json: 'image_urls_json TEXT',
+  primary_image_id: 'primary_image_id TEXT',
+  image_ids_json: 'image_ids_json TEXT',
   is_one_off: 'is_one_off INTEGER DEFAULT 1',
   is_sold: 'is_sold INTEGER DEFAULT 0',
   quantity_available: 'quantity_available INTEGER DEFAULT 1',
@@ -121,6 +138,8 @@ const createProductsTable = `
     category TEXT,
     image_url TEXT,
     image_urls_json TEXT,
+    primary_image_id TEXT,
+    image_ids_json TEXT,
     is_active INTEGER DEFAULT 1,
     is_one_off INTEGER DEFAULT 1,
     is_sold INTEGER DEFAULT 0,
@@ -131,6 +150,40 @@ const createProductsTable = `
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
 `;
+
+const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
+  const unique = Array.from(new Set(ids.filter(Boolean)));
+  if (!unique.length) return new Map();
+  const placeholders = unique.map(() => '?').join(', ');
+  const { results } = await db
+    .prepare(`SELECT id, public_url FROM images WHERE id IN (${placeholders});`)
+    .bind(...unique)
+    .all<{ id: string; public_url: string }>();
+  return new Map((results || []).map((row) => [row.id, row.public_url]));
+};
+
+const resolveImageUrlsFromIds = async (
+  db: D1Database,
+  primaryImageId?: string | null,
+  imageIds?: string[] | null
+) => {
+  const ids = [primaryImageId || '', ...(imageIds || [])].filter(Boolean);
+  const urlMap = await fetchImageUrlMap(db, ids);
+  const primaryUrl = primaryImageId ? urlMap.get(primaryImageId) || '' : '';
+  const extraUrls = (imageIds || []).map((id) => urlMap.get(id)).filter((url): url is string => !!url);
+  return { primaryUrl, extraUrls, urlMap };
+};
+
+const resolveImageIdsFromUrls = async (db: D1Database, urls: string[]) => {
+  const unique = Array.from(new Set(urls.filter(Boolean)));
+  if (!unique.length) return new Map<string, string>();
+  const placeholders = unique.map(() => '?').join(', ');
+  const { results } = await db
+    .prepare(`SELECT id, public_url FROM images WHERE public_url IN (${placeholders});`)
+    .bind(...unique)
+    .all<{ id: string; public_url: string }>();
+  return new Map((results || []).map((row) => [row.public_url, row.id]));
+};
 
 async function ensureProductSchema(db: D1Database) {
   await db.prepare(createProductsTable).run();
@@ -182,9 +235,12 @@ export async function onRequestPut(context: {
     }
 
     const imageUrls = Array.isArray(body.imageUrls) ? body.imageUrls : [];
+    const imageIds = Array.isArray(body.imageIds) ? body.imageIds.filter(Boolean) : [];
+    const primaryImageId = body.primaryImageId || imageIds[0] || null;
     console.log('[products save] payload summary', {
       keys: Object.keys(body),
       imageCount: imageUrls.length + (body.imageUrl ? 1 : 0),
+      imageIdCount: imageIds.length + (primaryImageId ? 1 : 0),
       imageUrlPrefix: body.imageUrl ? body.imageUrl.slice(0, 30) : null,
       imageUrlsPreview: imageUrls.slice(0, 3).map((url) => (typeof url === 'string' ? url.slice(0, 30) : '')),
     });
@@ -246,12 +302,34 @@ export async function onRequestPut(context: {
       const categoryValue = sanitizeCategory(body.category);
       addSet('category = ?', categoryValue || null);
     }
-    if (body.imageUrl !== undefined) {
+    if (primaryImageId || imageIds.length) {
+      const resolved = await resolveImageUrlsFromIds(context.env.DB, primaryImageId, imageIds);
+      if (primaryImageId && !resolved.primaryUrl && !body.imageUrl) {
+        return new Response(JSON.stringify({ error: 'Primary image id not found' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const primaryUrl = resolved.primaryUrl || (typeof body.imageUrl === 'string' ? body.imageUrl.trim() : '');
+      const extraUrls = resolved.extraUrls.length
+        ? resolved.extraUrls
+        : Array.isArray(body.imageUrls)
+        ? body.imageUrls
+        : [];
+      addSet('primary_image_id = ?', primaryImageId);
+      addSet('image_ids_json = ?', JSON.stringify(imageIds));
+      addSet('image_url = ?', primaryUrl ? primaryUrl : null);
+      addSet('image_urls_json = ?', JSON.stringify(extraUrls));
+    } else if (body.imageUrl !== undefined || body.imageUrls !== undefined) {
       const primary = typeof body.imageUrl === 'string' ? body.imageUrl.trim() : '';
+      const extras = Array.isArray(body.imageUrls) ? body.imageUrls : [];
       addSet('image_url = ?', primary ? primary : null);
-    }
-    if (body.imageUrls !== undefined) {
-      addSet('image_urls_json = ?', JSON.stringify(body.imageUrls));
+      addSet('image_urls_json = ?', JSON.stringify(extras));
+      const urlToId = await resolveImageIdsFromUrls(context.env.DB, [primary, ...extras]);
+      const resolvedPrimaryImageId = primary ? urlToId.get(primary) || null : null;
+      const resolvedImageIds = extras.map((url) => urlToId.get(url)).filter((val): val is string => !!val);
+      addSet('primary_image_id = ?', resolvedPrimaryImageId);
+      addSet('image_ids_json = ?', JSON.stringify(resolvedImageIds));
     }
     if (body.quantityAvailable !== undefined) addSet('quantity_available = ?', body.quantityAvailable);
     if (body.isOneOff !== undefined) addSet('is_one_off = ?', body.isOneOff ? 1 : 0);
@@ -286,6 +364,7 @@ export async function onRequestPut(context: {
     const updated = await context.env.DB.prepare(
       `
       SELECT id, name, slug, description, price_cents, category, image_url, image_urls_json,
+             primary_image_id, image_ids_json,
              is_active, is_one_off, is_sold, quantity_available, stripe_price_id, stripe_product_id,
              collection, created_at
       FROM products WHERE id = ?;
@@ -294,7 +373,12 @@ export async function onRequestPut(context: {
       .bind(id)
       .first<ProductRow>();
 
-    const product = updated ? mapRowToProduct(updated) : null;
+    const imageIdSet = [
+      updated?.primary_image_id || '',
+      ...(updated?.image_ids_json ? safeParseJsonArray(updated.image_ids_json) : []),
+    ].filter(Boolean);
+    const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIdSet);
+    const product = updated ? mapRowToProduct(updated, imageUrlMap) : null;
 
     return new Response(JSON.stringify({ product }), {
       status: 200,

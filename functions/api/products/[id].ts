@@ -19,6 +19,8 @@ type ProductRow = {
   category: string | null;
   image_url: string | null;
   image_urls_json?: string | null;
+  primary_image_id?: string | null;
+  image_ids_json?: string | null;
   is_active: number | null;
   is_one_off?: number | null;
   is_sold?: number | null;
@@ -39,9 +41,18 @@ const safeParseJsonArray = (value: string | null): string[] => {
   }
 };
 
-const mapRowToProduct = (row: ProductRow): Product => {
-  const imageUrls = row.image_urls_json ? safeParseJsonArray(row.image_urls_json) : [];
-  const primaryImage = row.image_url || imageUrls[0] || '';
+const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>): Product => {
+  const imageIds = row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : [];
+  const primaryId = row.primary_image_id || imageIds[0] || '';
+  const primaryFromIds = primaryId ? imageUrlMap.get(primaryId) || '' : '';
+  const extraFromIds = imageIds.map((id) => imageUrlMap.get(id)).filter((url): url is string => !!url);
+  const legacyExtras = row.image_urls_json ? safeParseJsonArray(row.image_urls_json) : [];
+  const legacyPrimary = row.image_url || legacyExtras[0] || '';
+  const primaryImage = primaryFromIds || legacyPrimary || '';
+  const allExtras = primaryFromIds ? extraFromIds : legacyExtras;
+  const resolvedImageUrls = primaryImage
+    ? [primaryImage, ...allExtras.filter((url) => url !== primaryImage)]
+    : allExtras;
 
   return {
     id: row.id,
@@ -49,8 +60,10 @@ const mapRowToProduct = (row: ProductRow): Product => {
     stripePriceId: row.stripe_price_id || undefined,
     name: row.name ?? '',
     description: row.description ?? '',
-    imageUrls: primaryImage ? [primaryImage, ...imageUrls.filter((url) => url !== primaryImage)] : imageUrls,
+    imageUrls: resolvedImageUrls,
     imageUrl: primaryImage,
+    primaryImageId: row.primary_image_id || (imageIds[0] || undefined),
+    imageIds: imageIds.length ? imageIds : undefined,
     thumbnailUrl: primaryImage || undefined,
     type: row.category ?? 'General',
     category: row.category ?? undefined,
@@ -83,7 +96,8 @@ export async function onRequestGet(context: {
 
     const row = await context.env.DB.prepare(
       `
-      SELECT id, name, slug, description, price_cents, category, image_url, image_urls_json, is_active,
+      SELECT id, name, slug, description, price_cents, category, image_url, image_urls_json,
+             primary_image_id, image_ids_json, is_active,
              is_one_off, is_sold, quantity_available, stripe_price_id, stripe_product_id, collection, created_at
       FROM products
       WHERE id = ? OR slug = ? OR stripe_product_id = ?
@@ -100,7 +114,12 @@ export async function onRequestGet(context: {
       });
     }
 
-    const product = mapRowToProduct(row);
+    const imageIdSet = [
+      row.primary_image_id || '',
+      ...(row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : []),
+    ].filter(Boolean);
+    const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIdSet);
+    const product = mapRowToProduct(row, imageUrlMap);
     return new Response(JSON.stringify({ product }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -116,6 +135,8 @@ export async function onRequestGet(context: {
 
 const REQUIRED_PRODUCT_COLUMNS: Record<string, string> = {
   image_urls_json: 'image_urls_json TEXT',
+  primary_image_id: 'primary_image_id TEXT',
+  image_ids_json: 'image_ids_json TEXT',
   is_one_off: 'is_one_off INTEGER DEFAULT 1',
   is_sold: 'is_sold INTEGER DEFAULT 0',
   quantity_available: 'quantity_available INTEGER DEFAULT 1',
@@ -134,6 +155,8 @@ const createProductsTable = `
     category TEXT,
     image_url TEXT,
     image_urls_json TEXT,
+    primary_image_id TEXT,
+    image_ids_json TEXT,
     is_active INTEGER DEFAULT 1,
     is_one_off INTEGER DEFAULT 1,
     is_sold INTEGER DEFAULT 0,
@@ -144,6 +167,17 @@ const createProductsTable = `
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
 `;
+
+const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
+  const unique = Array.from(new Set(ids.filter(Boolean)));
+  if (!unique.length) return new Map();
+  const placeholders = unique.map(() => '?').join(', ');
+  const { results } = await db
+    .prepare(`SELECT id, public_url FROM images WHERE id IN (${placeholders});`)
+    .bind(...unique)
+    .all<{ id: string; public_url: string }>();
+  return new Map((results || []).map((row) => [row.id, row.public_url]));
+};
 
 async function ensureProductSchema(db: D1Database) {
   await db.prepare(createProductsTable).run();

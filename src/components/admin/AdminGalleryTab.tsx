@@ -1,11 +1,12 @@
 import React from 'react';
 import { CheckCircle, Eye, EyeOff, Plus, Trash2, Upload } from 'lucide-react';
 import type { GalleryImage } from '../../lib/types';
+import { adminUploadImage } from '../../lib/api';
 import { AdminSectionHeader } from './AdminSectionHeader';
 
 export interface AdminGalleryTabProps {
   images: GalleryImage[];
-  onChange: (images: GalleryImage[]) => void;
+  onChange: React.Dispatch<React.SetStateAction<GalleryImage[]>>;
   onSave: () => Promise<void>;
   saveState: 'idle' | 'saving' | 'success' | 'error';
   fileInputRef: React.RefObject<HTMLInputElement>;
@@ -31,7 +32,7 @@ export function AdminGalleryTab(props: AdminGalleryTabProps) {
 
 interface GalleryAdminProps {
   images: GalleryImage[];
-  onChange: (images: GalleryImage[]) => void;
+  onChange: React.Dispatch<React.SetStateAction<GalleryImage[]>>;
   onSave: () => Promise<void>;
   saveState: 'idle' | 'saving' | 'success' | 'error';
   fileInputRef: React.RefObject<HTMLInputElement>;
@@ -50,32 +51,61 @@ function GalleryAdmin({
   description = 'Add, hide, or remove gallery images.', // Uses PUT /api/gallery with payload { images: GalleryImage[] }
   maxImages,
 }: GalleryAdminProps) {
-  const handleAddImages = (files: FileList | null) => {
+  const handleAddImages = async (files: FileList | null) => {
     if (!files) return;
     const fileArray = Array.from(files);
     const allowed = typeof maxImages === 'number' ? Math.max(0, maxImages - images.length) : undefined;
     const selected = typeof allowed === 'number' ? fileArray.slice(0, allowed) : fileArray;
-    const readers = selected.map((file) => {
-      return new Promise<GalleryImage>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          resolve({
-            id: crypto.randomUUID(),
-            imageUrl: reader.result as string,
-            alt: file.name,
-            hidden: false,
-            createdAt: new Date().toISOString(),
-            position: images.length,
-          } as GalleryImage);
-        };
-        reader.onerror = () => reject(new Error('Failed to read file'));
-        reader.readAsDataURL(file);
-      });
-    });
 
-    Promise.all(readers)
-      .then((newImages) => onChange([...images, ...newImages]))
-      .catch((err) => console.error('Error reading images', err));
+    const placeholders: GalleryImage[] = selected.map((file, idx) => ({
+      id: crypto.randomUUID(),
+      imageUrl: URL.createObjectURL(file),
+      alt: file.name,
+      hidden: false,
+      createdAt: new Date().toISOString(),
+      position: images.length + idx,
+      uploading: true,
+    }));
+    onChange([...images, ...placeholders]);
+
+    for (let i = 0; i < selected.length; i += 1) {
+      const file = selected[i];
+      const placeholder = placeholders[i];
+      try {
+        const result = await adminUploadImage(file, {
+          entityType: 'gallery',
+          entityId: 'gallery',
+          kind: 'gallery',
+          sortOrder: images.length + i,
+        });
+        URL.revokeObjectURL(placeholder.imageUrl);
+        onChange((prev) =>
+          prev.map((img) =>
+            img.id === placeholder.id
+              ? {
+                  ...img,
+                  imageUrl: result.publicUrl,
+                  imageId: result.id,
+                  uploading: false,
+                  uploadError: undefined,
+                }
+              : img
+          )
+        );
+      } catch (err) {
+        onChange((prev) =>
+          prev.map((img) =>
+            img.id === placeholder.id
+              ? {
+                  ...img,
+                  uploading: false,
+                  uploadError: err instanceof Error ? err.message : 'Upload failed',
+                }
+              : img
+          )
+        );
+      }
+    }
   };
 
   const handleRemove = (id: string) => {
@@ -119,7 +149,7 @@ function GalleryAdmin({
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
           <button
             onClick={onSave}
-            disabled={saveState === 'saving'}
+            disabled={saveState === 'saving' || images.some((img) => img.uploading)}
             className="inline-flex items-center gap-2 px-3 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
           >
             {saveState === 'saving' ? (
@@ -158,6 +188,7 @@ function GalleryAdmin({
           {saveState === 'saving' && 'Saving changes...'}
           {saveState === 'success' && 'Gallery saved.'}
           {saveState === 'error' && 'Save failed. Please retry.'}
+          {saveState === 'idle' && images.some((img) => img.uploading) && 'Uploading images...'}
           {saveState === 'idle' && images.length === 0 && 'No images saved yet.'}
         </div>
       </div>
@@ -180,6 +211,16 @@ function GalleryAdmin({
             <div className="aspect-square bg-gray-100">
               <img src={img.imageUrl} alt={img.alt || `Gallery image ${idx + 1}`} className="w-full h-full object-cover" />
             </div>
+            {img.uploading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs text-white">
+                Uploading...
+              </div>
+            )}
+            {img.uploadError && (
+              <div className="absolute inset-x-2 bottom-2 rounded bg-red-600/90 px-2 py-1 text-[10px] text-white">
+                {img.uploadError}
+              </div>
+            )}
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
               <div className="flex items-center justify-between text-white text-xs">
                 <button

@@ -18,6 +18,8 @@ type CategoryRow = {
   slug: string | null;
   image_url?: string | null;
   hero_image_url?: string | null;
+  image_id?: string | null;
+  hero_image_id?: string | null;
   show_on_homepage?: number | null;
 };
 
@@ -27,6 +29,8 @@ type Category = {
   slug: string;
   imageUrl?: string;
   heroImageUrl?: string;
+  imageId?: string;
+  heroImageId?: string;
   showOnHomePage: boolean;
 };
 
@@ -50,6 +54,8 @@ const createCategoriesTable = `
     slug TEXT NOT NULL,
     image_url TEXT,
     hero_image_url TEXT,
+    image_id TEXT,
+    hero_image_id TEXT,
     show_on_homepage INTEGER DEFAULT 0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
@@ -59,6 +65,19 @@ const REQUIRED_CATEGORY_COLUMNS: Record<string, string> = {
   show_on_homepage: 'show_on_homepage INTEGER DEFAULT 0',
   slug: 'slug TEXT',
   hero_image_url: 'hero_image_url TEXT',
+  hero_image_id: 'hero_image_id TEXT',
+  image_id: 'image_id TEXT',
+};
+
+const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
+  const unique = Array.from(new Set(ids.filter(Boolean)));
+  if (!unique.length) return new Map();
+  const placeholders = unique.map(() => '?').join(', ');
+  const { results } = await db
+    .prepare(`SELECT id, public_url FROM images WHERE id IN (${placeholders});`)
+    .bind(...unique)
+    .all<{ id: string; public_url: string }>();
+  return new Map((results || []).map((row) => [row.id, row.public_url]));
 };
 
 export async function onRequest(context: {
@@ -95,9 +114,16 @@ export async function onRequest(context: {
 }
 
 async function handleGet(db: D1Database): Promise<Response> {
-  const { results } = await db.prepare(`SELECT id, name, slug, image_url, hero_image_url, show_on_homepage FROM categories`).all<CategoryRow>();
+  const { results } = await db
+    .prepare(
+      `SELECT id, name, slug, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories`
+    )
+    .all<CategoryRow>();
+  const rows = results || [];
+  const imageIds = rows.flatMap((row) => [row.image_id || '', row.hero_image_id || '']).filter(Boolean);
+  const imageUrlMap = await fetchImageUrlMap(db, imageIds);
   const categories = orderCategories(
-    (results || []).map(mapRowToCategory).filter((c): c is Category => Boolean(c))
+    rows.map((row) => mapRowToCategory(row, imageUrlMap)).filter((c): c is Category => Boolean(c))
   );
   return json({ categories });
 }
@@ -112,20 +138,37 @@ async function handlePost(db: D1Database, request: Request): Promise<Response> {
   const showOnHomePage = !!body?.showOnHomePage;
   const imageUrl = body?.imageUrl || null;
   const heroImageUrl = body?.heroImageUrl || null;
+  const imageId = body?.imageId || null;
+  const heroImageId = body?.heroImageId || null;
+
+  let resolvedImageUrl = imageUrl;
+  let resolvedHeroImageUrl = heroImageUrl;
+  if (imageId || heroImageId) {
+    const ids = [imageId || '', heroImageId || ''].filter(Boolean);
+    const map = await fetchImageUrlMap(db, ids);
+    if (imageId) resolvedImageUrl = map.get(imageId) || resolvedImageUrl;
+    if (heroImageId) resolvedHeroImageUrl = map.get(heroImageId) || resolvedHeroImageUrl;
+  }
 
   const result = await db
-    .prepare(`INSERT INTO categories (id, name, slug, image_url, hero_image_url, show_on_homepage) VALUES (?, ?, ?, ?, ?, ?);`)
-    .bind(id, name, slug, imageUrl, heroImageUrl, showOnHomePage ? 1 : 0)
+    .prepare(
+      `INSERT INTO categories (id, name, slug, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?);`
+    )
+    .bind(id, name, slug, resolvedImageUrl, resolvedHeroImageUrl, imageId, heroImageId, showOnHomePage ? 1 : 0)
     .run();
 
   if (!result.success) return json({ error: 'Failed to create category' }, 500);
 
   const created = await db
-    .prepare(`SELECT id, name, slug, image_url, hero_image_url, show_on_homepage FROM categories WHERE id = ?;`)
+    .prepare(
+      `SELECT id, name, slug, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories WHERE id = ?;`
+    )
     .bind(id)
     .first<CategoryRow>();
 
-  return json({ category: mapRowToCategory(created as CategoryRow) }, 201);
+  const imageUrlMap = await fetchImageUrlMap(db, [created?.image_id || '', created?.hero_image_id || ''].filter(Boolean));
+  return json({ category: mapRowToCategory(created as CategoryRow, imageUrlMap) }, 201);
 }
 
 async function handlePut(db: D1Database, request: Request): Promise<Response> {
@@ -151,9 +194,18 @@ async function handlePut(db: D1Database, request: Request): Promise<Response> {
   }
   if (body.imageUrl !== undefined) addSet('image_url = ?', body.imageUrl || null);
   if (body.heroImageUrl !== undefined) addSet('hero_image_url = ?', body.heroImageUrl || null);
+  if (body.imageId !== undefined) addSet('image_id = ?', body.imageId || null);
+  if (body.heroImageId !== undefined) addSet('hero_image_id = ?', body.heroImageId || null);
   if (body.showOnHomePage !== undefined) addSet('show_on_homepage = ?', body.showOnHomePage ? 1 : 0);
 
   if (!sets.length) return json({ error: 'No fields to update' }, 400);
+
+  if (body.imageId || body.heroImageId) {
+    const ids = [body.imageId || '', body.heroImageId || ''].filter(Boolean);
+    const map = await fetchImageUrlMap(db, ids);
+    if (body.imageId) addSet('image_url = ?', map.get(body.imageId) || null);
+    if (body.heroImageId) addSet('hero_image_url = ?', map.get(body.heroImageId) || null);
+  }
 
   const result = await db
     .prepare(`UPDATE categories SET ${sets.join(', ')} WHERE id = ?;`)
@@ -164,11 +216,14 @@ async function handlePut(db: D1Database, request: Request): Promise<Response> {
   if (result.meta?.changes === 0) return json({ error: 'Category not found' }, 404);
 
   const updated = await db
-    .prepare(`SELECT id, name, slug, image_url, hero_image_url, show_on_homepage FROM categories WHERE id = ?;`)
+    .prepare(
+      `SELECT id, name, slug, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories WHERE id = ?;`
+    )
     .bind(id)
     .first<CategoryRow>();
 
-  return json({ category: mapRowToCategory(updated as CategoryRow) });
+  const imageUrlMap = await fetchImageUrlMap(db, [updated?.image_id || '', updated?.hero_image_id || ''].filter(Boolean));
+  return json({ category: mapRowToCategory(updated as CategoryRow, imageUrlMap) });
 }
 
 async function handleDelete(db: D1Database, request: Request): Promise<Response> {
@@ -218,14 +273,20 @@ async function handleDelete(db: D1Database, request: Request): Promise<Response>
   return json({ success: true });
 }
 
-const mapRowToCategory = (row: CategoryRow): Category | null => {
+const mapRowToCategory = (row: CategoryRow, imageUrlMap: Map<string, string>): Category | null => {
   if (!row || !row.id || !row.name || !row.slug) return null;
+  const imageUrl = row.image_id ? imageUrlMap.get(row.image_id) || row.image_url || undefined : row.image_url || undefined;
+  const heroImageUrl = row.hero_image_id
+    ? imageUrlMap.get(row.hero_image_id) || row.hero_image_url || undefined
+    : row.hero_image_url || undefined;
   return {
     id: row.id,
     name: row.name,
     slug: row.slug,
-    imageUrl: row.image_url || undefined,
-    heroImageUrl: row.hero_image_url || undefined,
+    imageUrl,
+    heroImageUrl,
+    imageId: row.image_id || undefined,
+    heroImageId: row.hero_image_id || undefined,
     showOnHomePage: row.show_on_homepage === 1,
   };
 };
