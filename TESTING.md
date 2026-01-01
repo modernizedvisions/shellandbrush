@@ -11,6 +11,9 @@ curl -s -X POST \
 Expect `image.publicUrl` to begin with `https://shellandbrush.pages.dev/images/`.
 
 2) Open the returned publicUrl in a browser; it should return 200 and render.
+```
+curl -I "https://shellandbrush.pages.dev/images/shellandbrush/products/2026/01/<uuid>.png"
+```
 
 3) Create a product using the returned URL:
 ```
