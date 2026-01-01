@@ -297,6 +297,7 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
     const isPrimary = isPrimaryRaw ? (isPrimaryRaw === '1' || isPrimaryRaw.toLowerCase() === 'true' ? 1 : 0) : 0;
     const sortOrder = Number.isFinite(Number(sortOrderRaw)) ? Number(sortOrderRaw) : 0;
     let dbImageId: string | null = null;
+    let insertFailed = false;
     if (env.DB) {
       dbImageId = crypto.randomUUID();
       try {
@@ -323,21 +324,25 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
           )
           .run();
       } catch (err) {
-        return respondError({
-          code: 'D1_INSERT_FAILED',
-          message: 'Image upload failed (D1 insert).',
-          status: 500,
-          error: err,
+        insertFailed = true;
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error('[images/upload] D1 insert failed', {
+          rid,
+          error: errMsg,
         });
       }
     }
 
     const responsePayload: Record<string, unknown> = withFingerprint({
+      ok: true,
       id: storageKey,
       url: publicUrl,
     });
     if (dbImageId && dbImageId !== storageKey) {
       responsePayload.dbImageId = dbImageId;
+    }
+    if (insertFailed) {
+      responsePayload.warning = 'D1_INSERT_FAILED';
     }
 
     return json(responsePayload, 200, corsHeaders());

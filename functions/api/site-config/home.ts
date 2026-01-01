@@ -53,12 +53,19 @@ const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<stri
 
 export async function onRequestGet(context: { env: Env }): Promise<Response> {
   const db = context.env.DB;
-  if (!db) return json({ error: 'missing_d1_binding' }, 500);
+  if (!db) {
+    return json({ ok: true, config: { ...DEFAULT_CONFIG } }, 200);
+  }
 
-  const row = await db
-    .prepare(`SELECT config_json, updated_at FROM site_config WHERE id = ?;`)
-    .bind('home')
-    .first<{ config_json: string | null; updated_at: string | null }>();
+  let row: { config_json: string | null; updated_at: string | null } | null = null;
+  try {
+    row = await db
+      .prepare(`SELECT config_json, updated_at FROM site_config WHERE id = ?;`)
+      .bind('home')
+      .first<{ config_json: string | null; updated_at: string | null }>();
+  } catch (err) {
+    return json({ ok: true, config: { ...DEFAULT_CONFIG } }, 200);
+  }
 
   let config: SiteConfig = { ...DEFAULT_CONFIG };
   if (row?.config_json) {
@@ -88,6 +95,7 @@ export async function onRequestGet(context: { env: Env }): Promise<Response> {
   const heroImageUrl = config.heroImageId ? imageUrlMap.get(config.heroImageId) || '' : '';
 
   return json({
+    ok: true,
     config: {
       ...config,
       heroImages: hydrate(heroImages),
