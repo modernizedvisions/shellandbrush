@@ -20,7 +20,7 @@ import { getReviewsForProduct } from './db/reviews';
 import { createEmbeddedCheckoutSession, fetchCheckoutSession } from './payments/checkout';
 import { sendContactEmail } from './contact';
 import { verifyAdminPassword } from './auth';
-import { adminFetch } from './adminAuth';
+import { adminFetch, getStoredAdminPassword } from './adminAuth';
 import type { Category } from './types';
 
 // Aggregates the mock data layer and stubs so the UI can continue working while we
@@ -187,9 +187,11 @@ export async function adminUploadImage(
   if (options.scope) query.set('scope', options.scope);
   const url = `/api/admin/images/upload?${query.toString()}`;
   const method = 'POST';
+  const pw = getStoredAdminPassword();
 
   console.debug('[admin image upload] request', {
     rid,
+    scope: options.scope || 'products',
     url,
     method,
     bodyIsFormData: form instanceof FormData,
@@ -197,6 +199,7 @@ export async function adminUploadImage(
     fileSizes: [file.size],
     fileName: file.name,
     fileType: file.type,
+    pwLength: pw.length,
   });
 
   const response = await adminFetch(url, {
@@ -230,13 +233,13 @@ export async function adminUploadImage(
     throw new Error(`Upload failed (${response.status}). See console for details. Server: invalid-json`);
   }
   const normalizedId =
-    (typeof data?.id === 'string' && data.id) ||
     (typeof data?.image?.id === 'string' && data.image.id) ||
+    (typeof data?.id === 'string' && data.id) ||
     (typeof data?.image?.storageKey === 'string' && data.image.storageKey) ||
     '';
   const normalizedUrl =
-    (typeof data?.url === 'string' && data.url) ||
     (typeof data?.image?.publicUrl === 'string' && data.image.publicUrl) ||
+    (typeof data?.url === 'string' && data.url) ||
     '';
 
   if (!normalizedId || !normalizedUrl) {

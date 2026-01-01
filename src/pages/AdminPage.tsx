@@ -109,6 +109,8 @@ export function AdminPage() {
   const [activeTab, setActiveTab] = useState<'orders' | 'shop' | 'messages' | 'customOrders' | 'images' | 'sold'>('orders');
   const [gallerySaveState, setGallerySaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [homeSaveState, setHomeSaveState] = useState<'idle' | 'saving' | 'success'>('idle');
+  const [gallerySaveError, setGallerySaveError] = useState('');
+  const [homeSaveError, setHomeSaveError] = useState('');
   const [productSaveState, setProductSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [editProductSaveState, setEditProductSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [productStatus, setProductStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
@@ -152,6 +154,7 @@ export function AdminPage() {
 
   const handleSaveHeroConfig = async () => {
     setHomeSaveState('saving');
+    setHomeSaveError('');
     try {
       const hasUploads =
         (heroConfig.heroImages || []).some((img) => img?.uploading) ||
@@ -179,6 +182,7 @@ export function AdminPage() {
       setTimeout(() => setHomeSaveState('idle'), 1500);
     } catch (err) {
       console.error('Failed to save home hero images', err);
+      setHomeSaveError(err instanceof Error ? err.message : 'Save failed.');
       setHomeSaveState('idle');
     }
   };
@@ -1163,6 +1167,7 @@ export function AdminPage() {
               onCustomOrdersChange={(images) => setHeroConfig((prev) => ({ ...prev, customOrdersImages: images }))}
               onSaveHeroConfig={handleSaveHeroConfig}
               homeSaveState={homeSaveState}
+              homeSaveError={homeSaveError}
               heroRotationEnabled={!!heroConfig.heroRotationEnabled}
               onHeroRotationToggle={(enabled) => setHeroConfig((prev) => ({ ...prev, heroRotationEnabled: enabled }))}
             />
@@ -1173,6 +1178,7 @@ export function AdminPage() {
               onSave={async () => {
                 setGallerySaveState('saving');
                 try {
+                  setGallerySaveError('');
                   const normalized = galleryImages.map((img, idx) => ({
                     ...img,
                     position: idx,
@@ -1191,10 +1197,12 @@ export function AdminPage() {
                   setTimeout(() => setGallerySaveState('idle'), 1500);
                 } catch (err) {
                   console.error('Failed to save gallery images', err);
+                  setGallerySaveError(err instanceof Error ? err.message : 'Save failed.');
                   setGallerySaveState('error');
                 }
               }}
               saveState={gallerySaveState}
+              saveError={gallerySaveError}
               fileInputRef={fileInputRef}
               title="Gallery Management"
               description="Add, hide, or remove gallery images."

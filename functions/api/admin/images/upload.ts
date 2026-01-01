@@ -262,7 +262,7 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
     const now = new Date();
     const year = String(now.getUTCFullYear());
     const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-    const storageKey = `shell-and-brush/${scope}/${year}/${month}/${crypto.randomUUID()}.${ext}`;
+    const storageKey = `shellandbrush/${scope}/${year}/${month}/${crypto.randomUUID()}.${ext}`;
 
     try {
       await bucket.put(storageKey, file.stream(), {
@@ -335,12 +335,12 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
 
     const responsePayload: Record<string, unknown> = withFingerprint({
       ok: true,
-      id: storageKey,
-      url: publicUrl,
+      image: {
+        id: dbImageId || storageKey,
+        storageKey,
+        publicUrl,
+      },
     });
-    if (dbImageId && dbImageId !== storageKey) {
-      responsePayload.dbImageId = dbImageId;
-    }
     if (insertFailed) {
       responsePayload.warning = 'D1_INSERT_FAILED';
     }

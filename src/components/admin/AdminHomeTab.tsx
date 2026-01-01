@@ -21,6 +21,7 @@ export interface AdminHomeTabProps {
   onCustomOrdersChange: (images: CustomOrdersImage[]) => void;
   onSaveHeroConfig: () => Promise<void>;
   homeSaveState: 'idle' | 'saving' | 'success';
+  homeSaveError?: string;
   heroRotationEnabled?: boolean;
   onHeroRotationToggle?: (enabled: boolean) => void;
 }
@@ -41,6 +42,7 @@ export function AdminHomeTab({
   onCustomOrdersChange,
   onSaveHeroConfig,
   homeSaveState,
+  homeSaveError,
   heroRotationEnabled = false,
   onHeroRotationToggle,
 }: AdminHomeTabProps) {
@@ -65,6 +67,7 @@ export function AdminHomeTab({
         onChange={onHeroChange}
         onSave={onSaveHeroConfig}
         saveState={homeSaveState}
+        saveError={homeSaveError}
         heroRotationEnabled={heroRotationEnabled}
         onHeroRotationToggle={onHeroRotationToggle}
       />
@@ -74,6 +77,7 @@ export function AdminHomeTab({
         onChange={onCustomOrdersChange}
         onSave={onSaveHeroConfig}
         saveState={homeSaveState}
+        saveError={homeSaveError}
       />
 
       <ShopCategoryCardsSection
@@ -91,6 +95,7 @@ interface HeroCollageAdminProps {
   onChange: (images: HeroCollageImage[]) => void;
   onSave: () => Promise<void>;
   saveState: 'idle' | 'saving' | 'success';
+  saveError?: string;
   heroRotationEnabled?: boolean;
   onHeroRotationToggle?: (enabled: boolean) => void;
 }
@@ -100,6 +105,7 @@ function HeroCollageAdmin({
   onChange,
   onSave,
   saveState,
+  saveError,
   heroRotationEnabled = false,
   onHeroRotationToggle,
 }: HeroCollageAdminProps) {
@@ -222,6 +228,7 @@ function HeroCollageAdmin({
           </button>
         </div>
         {hasBlocked && <div className="text-xs text-red-600">Upload hero images before saving (no blob/data URLs).</div>}
+        {saveError && <div className="text-xs text-red-600">{saveError}</div>}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -312,6 +319,7 @@ interface CustomOrdersImagesAdminProps {
   onChange: (images: CustomOrdersImage[]) => void;
   onSave: () => Promise<void>;
   saveState: 'idle' | 'saving' | 'success';
+  saveError?: string;
 }
 
 const normalizeCategoriesList = (items: Category[]): Category[] => {
@@ -328,7 +336,7 @@ const normalizeCategoriesList = (items: Category[]): Category[] => {
   return [...withoutOtherItems, ...otherItems];
 };
 
-function CustomOrdersImagesAdmin({ images, onChange, onSave, saveState }: CustomOrdersImagesAdminProps) {
+function CustomOrdersImagesAdmin({ images, onChange, onSave, saveState, saveError }: CustomOrdersImagesAdminProps) {
   const slots = [0, 1, 2, 3];
   const hasUploads = images.some((img) => img?.uploading);
   const hasBlocked = images.some((img) => isBlockedImageUrl(img?.imageUrl));
@@ -414,6 +422,7 @@ function CustomOrdersImagesAdmin({ images, onChange, onSave, saveState }: Custom
           </button>
         </div>
         {hasBlocked && <div className="text-xs text-red-600">Upload images before saving (no blob/data URLs).</div>}
+        {saveError && <div className="text-xs text-red-600">{saveError}</div>}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

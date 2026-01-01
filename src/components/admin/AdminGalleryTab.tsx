@@ -18,6 +18,7 @@ export interface AdminGalleryTabProps {
   onChange: React.Dispatch<React.SetStateAction<GalleryImage[]>>;
   onSave: () => Promise<void>;
   saveState: 'idle' | 'saving' | 'success' | 'error';
+  saveError?: string;
   fileInputRef: React.RefObject<HTMLInputElement>;
   title?: string;
   description?: string;
@@ -31,6 +32,7 @@ export function AdminGalleryTab(props: AdminGalleryTabProps) {
       onChange={props.onChange}
       onSave={props.onSave}
       saveState={props.saveState}
+      saveError={props.saveError}
       fileInputRef={props.fileInputRef}
       title={props.title}
       description={props.description}
@@ -44,6 +46,7 @@ interface GalleryAdminProps {
   onChange: React.Dispatch<React.SetStateAction<GalleryImage[]>>;
   onSave: () => Promise<void>;
   saveState: 'idle' | 'saving' | 'success' | 'error';
+  saveError?: string;
   fileInputRef: React.RefObject<HTMLInputElement>;
   title?: string;
   description?: string;
@@ -55,6 +58,7 @@ function GalleryAdmin({
   onChange,
   onSave,
   saveState,
+  saveError,
   fileInputRef,
   title = 'Gallery Management',
   description = 'Add, hide, or remove gallery images.', // Uses PUT /api/gallery with payload { images: GalleryImage[] }
@@ -211,6 +215,7 @@ function GalleryAdmin({
           {saveState === 'idle' && blockedCount > 0 && 'Upload images before saving (no blob/data URLs).'}
           {saveState === 'idle' && images.length === 0 && 'No images saved yet.'}
         </div>
+        {saveError && <div className="mt-2 text-xs text-red-600">{saveError}</div>}
       </div>
 
       <div

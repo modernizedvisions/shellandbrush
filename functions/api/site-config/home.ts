@@ -40,6 +40,13 @@ const json = (data: unknown, status = 200) =>
     headers: { 'Content-Type': 'application/json' },
   });
 
+const createSiteConfigTable = `
+  CREATE TABLE IF NOT EXISTS site_config (
+    id TEXT PRIMARY KEY,
+    config_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );
+`;
 const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return new Map();
@@ -59,6 +66,7 @@ export async function onRequestGet(context: { env: Env }): Promise<Response> {
 
   let row: { config_json: string | null; updated_at: string | null } | null = null;
   try {
+    await db.prepare(createSiteConfigTable).run();
     row = await db
       .prepare(`SELECT config_json, updated_at FROM site_config WHERE id = ?;`)
       .bind('home')

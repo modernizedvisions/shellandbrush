@@ -107,7 +107,7 @@ export function ShopCategoryCardsSection({ categories = [], onCategoryUpdated }:
         kind: 'hero',
       });
       URL.revokeObjectURL(previewUrl);
-      const updated = await adminUpdateCategory(categoryId, { heroImageId: result.id });
+      const updated = await adminUpdateCategory(categoryId, { heroImageId: result.id, heroImageUrl: result.url });
       if (updated) {
         setCategoryState((prev) => prev.map((cat) => (cat.id === updated.id ? { ...cat, ...updated } : cat)));
         onCategoryUpdated?.(updated);

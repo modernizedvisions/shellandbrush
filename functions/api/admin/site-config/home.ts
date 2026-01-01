@@ -39,6 +39,14 @@ const json = (data: unknown, status = 200) =>
     headers: { 'Content-Type': 'application/json' },
   });
 
+const createSiteConfigTable = `
+  CREATE TABLE IF NOT EXISTS site_config (
+    id TEXT PRIMARY KEY,
+    config_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );
+`;
+
 const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return new Map();
@@ -58,6 +66,7 @@ export async function onRequestPut(context: { request: Request; env: Env }): Pro
 
   const db = context.env.DB;
   if (!db) return json({ error: 'missing_d1_binding' }, 500);
+  await db.prepare(createSiteConfigTable).run();
 
   let body: any = null;
   try {
@@ -131,6 +140,7 @@ export async function onRequestPut(context: { request: Request; env: Env }): Pro
     }));
 
   return json({
+    ok: true,
     config: {
       ...sanitized,
       heroImages: hydrate(sanitized.heroImages || []),

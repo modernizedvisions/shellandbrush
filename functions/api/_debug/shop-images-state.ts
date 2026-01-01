@@ -18,7 +18,7 @@ export async function onRequestGet(context: { env: Env }): Promise<Response> {
   let sampleKeys: string[] = [];
   if (bucket) {
     try {
-      const listed = await bucket.list({ prefix: 'shell-and-brush/', limit: 5 });
+      const listed = await bucket.list({ prefix: 'shellandbrush/', limit: 5 });
       sampleKeys = (listed?.objects || []).map((obj) => obj.key);
     } catch (err) {
       return json(
@@ -31,7 +31,7 @@ export async function onRequestGet(context: { env: Env }): Promise<Response> {
             bucketInUse: bucketBindingName,
             hasPublicBaseUrl: !!context.env.PUBLIC_IMAGES_BASE_URL,
           },
-          prefixTest: 'shell-and-brush/',
+          prefixTest: 'shellandbrush/',
           list: { keys: [], count: 0 },
           exampleUrl: null,
         },
@@ -48,7 +48,7 @@ export async function onRequestGet(context: { env: Env }): Promise<Response> {
       bucketInUse: bucketBindingName,
       hasPublicBaseUrl: !!context.env.PUBLIC_IMAGES_BASE_URL,
     },
-    prefixTest: 'shell-and-brush/',
+    prefixTest: 'shellandbrush/',
     list: { keys: sampleKeys, count: sampleKeys.length },
     exampleUrl: baseUrl && sampleKeys[0] ? `${baseUrl}/${sampleKeys[0]}` : null,
   });
