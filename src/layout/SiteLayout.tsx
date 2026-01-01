@@ -140,23 +140,13 @@ export function SiteLayout() {
         <Outlet />
       </main>
 
-      {location.pathname !== '/' && (
-        <footer className="bg-white border-t border-gray-200 py-8">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center">
-              <p className="text-sm text-gray-500 mb-2">
-                &copy; {new Date().getFullYear()} The Chesapeake Shell. All rights reserved.
-              </p>
-              <Link
-                to="/admin"
-                className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                Admin
-              </Link>
-            </div>
+      <footer className="bg-white border-t border-gray-200 py-8">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center">
+            <p className="text-sm text-gray-500">© 2026 Shell &amp; Brush. All rights reserved.</p>
           </div>
-        </footer>
-      )}
+        </div>
+      </footer>
 
       <CartDrawer />
     </div>
