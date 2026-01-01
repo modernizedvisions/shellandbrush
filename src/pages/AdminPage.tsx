@@ -237,7 +237,7 @@ export function AdminPage() {
     try {
       const result = await verifyAdminPassword(password);
       if (result) {
-        setStoredAdminPassword(password);
+        localStorage.setItem('admin_password', password);
         setIsAuthenticated(true);
         loadAdminData();
       } else {

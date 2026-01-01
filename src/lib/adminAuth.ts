@@ -22,7 +22,7 @@ export function getStoredAdminPassword(): string {
 
 export function setStoredAdminPassword(password: string): void {
   try {
-    localStorage.setItem(ADMIN_PASSWORD_KEY, password.trim());
+    localStorage.setItem(ADMIN_PASSWORD_KEY, password);
   } catch {
     // Ignore storage failures (private mode, etc.)
   }
@@ -38,18 +38,20 @@ export function clearStoredAdminPassword(): void {
 
 export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const password = getStoredAdminPassword();
+  const url = input instanceof Request ? input.url : String(input);
+  console.debug('[adminFetch]', { url, hasPw: !!password, pwLength: password.length });
+  if (!password) {
+    throw new Error('Missing admin password; please log in again.');
+  }
   const headers = new Headers(
     init.headers ?? (input instanceof Request ? input.headers : undefined)
   );
 
-  if (password) {
-    headers.set('x-admin-password', password);
-  }
+  headers.set('x-admin-password', password);
 
   const response = await fetch(input, { ...init, headers });
   if (response.status === 401) {
     const text = await response.clone().text().catch(() => '');
-    const url = input instanceof Request ? input.url : String(input);
     console.error('[admin] unauthorized', { url, status: response.status, bodyText: text });
     if (typeof window !== 'undefined') {
       window.dispatchEvent(

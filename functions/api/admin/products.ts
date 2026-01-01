@@ -46,6 +46,7 @@ type NewProductInput = {
   description: string;
   priceCents: number;
   category: string;
+  categoryId?: string;
   imageUrl: string;
   imageUrls?: string[];
   primaryImageId?: string | null;
@@ -129,6 +130,15 @@ const toSlug = (value: string) =>
 
 const sanitizeCategory = (value: string | undefined | null) => (value || '').trim();
 
+const isD1ErrorMessage = (value: string) =>
+  /no such table|no such column|SQLITE|D1/i.test(value);
+
+const jsonError = (code: 'D1_ERROR' | 'VALIDATION_ERROR' | 'UNKNOWN', message: string, extra?: Record<string, unknown>) =>
+  new Response(JSON.stringify({ ok: false, code, message, ...extra }), {
+    status: code === 'VALIDATION_ERROR' ? 400 : 500,
+    headers: { 'Content-Type': 'application/json' },
+  });
+
 const validateNewProduct = (input: Partial<NewProductInput>) => {
   if (!input.name || !input.description || input.priceCents === undefined || input.priceCents === null) {
     return 'name, description, and priceCents are required';
@@ -192,6 +202,19 @@ const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<stri
     .bind(...unique)
     .all<{ id: string; public_url: string }>();
   return new Map((results || []).map((row) => [row.id, row.public_url]));
+};
+
+const resolveCategoryFromId = async (db: D1Database, categoryId?: string | null): Promise<string> => {
+  if (!categoryId) return '';
+  try {
+    const row = await db
+      .prepare(`SELECT slug, name FROM categories WHERE id = ? LIMIT 1;`)
+      .bind(categoryId)
+      .first<{ slug: string | null; name: string | null }>();
+    return sanitizeCategory(row?.slug || row?.name || '');
+  } catch (err) {
+    return '';
+  }
 };
 
 const resolveImageUrlsFromIds = async (
@@ -289,7 +312,7 @@ export async function onRequestPost(context: {
       body = (await context.request.json()) as Partial<NewProductInput>;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      return new Response(JSON.stringify({ error: 'Invalid JSON', detail }), {
+      return new Response(JSON.stringify({ ok: false, code: 'VALIDATION_ERROR', message: 'Invalid JSON', detail }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -306,9 +329,25 @@ export async function onRequestPost(context: {
       imageUrlsPreview: imageUrls.slice(0, 3).map((url) => (typeof url === 'string' ? url.slice(0, 30) : '')),
     });
 
+    if (!sanitizeCategory(body.category)) {
+      const resolved = await resolveCategoryFromId(context.env.DB, body.categoryId);
+      if (resolved) {
+        body.category = resolved;
+      }
+    }
+
     const error = validateNewProduct(body);
     if (error) {
-      return new Response(JSON.stringify({ error }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+      if (error === 'category is required') {
+        return new Response(
+          JSON.stringify({ ok: false, code: 'VALIDATION_ERROR', field: 'category', message: 'category is required' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(
+        JSON.stringify({ ok: false, code: 'VALIDATION_ERROR', message: error }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
     }
     if (hasBlockedUrls([body.imageUrl, ...imageUrls])) {
       return new Response(JSON.stringify({ error: 'Images must be uploaded first; only URLs allowed.' }), {
@@ -359,17 +398,11 @@ export async function onRequestPost(context: {
         `SELECT name FROM sqlite_master WHERE type='table' AND name='products';`
       ).first<{ name: string }>();
       if (!table?.name) {
-        return new Response(JSON.stringify({ error: 'Products table missing' }), {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' },
-        });
+        return jsonError('D1_ERROR', 'Products table missing');
       }
     } catch (dbError) {
       const detail = dbError instanceof Error ? dbError.message : String(dbError);
-      return new Response(JSON.stringify({ error: 'DB schema check failed', detail }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return jsonError('D1_ERROR', 'DB schema check failed', { detail });
     }
 
     const statement = context.env.DB.prepare(
@@ -486,11 +519,12 @@ export async function onRequestPost(context: {
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    console.error('Error in POST /api/admin/products', { detail });
-    return new Response(JSON.stringify({ error: 'Internal server error', detail }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const stack = error instanceof Error ? error.stack : undefined;
+    console.error('[admin/products] failed', { message: detail, stack });
+    if (isD1ErrorMessage(detail)) {
+      return jsonError('D1_ERROR', detail);
+    }
+    return jsonError('UNKNOWN', detail);
   }
 }
 

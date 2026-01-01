@@ -59,10 +59,16 @@ export async function fetchAdminProducts(): Promise<Product[]> {
 
 export async function createAdminProduct(input: AdminProductInput): Promise<Product | null> {
   try {
+    const categoryValue =
+      typeof input.category === 'string'
+        ? input.category
+        : (input as any)?.category?.name || (input as any)?.category?.label || '';
+    const payload = { ...input, category: categoryValue };
+    console.debug('[shop save] payload category', { category: payload.category });
     const response = await adminFetch(ADMIN_PRODUCTS_PATH, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(input),
+      body: JSON.stringify(payload),
     });
     const data = await handleResponse(response);
     return data.product ?? null;
