@@ -71,7 +71,7 @@ export default function HeroSection() {
           </div>
 
           <div className="order-1 md:order-2 flex justify-center md:justify-end">
-            <div className="w-full max-w-sm sm:max-w-md md:max-w-lg">
+            <div className="w-full max-w-sm sm:max-w-md md:max-w-xl">
               <div className="relative aspect-[4/5] overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 shadow-sm">
                 {showImage ? (
                   <img
@@ -85,9 +85,8 @@ export default function HeroSection() {
                     }}
                   />
                 ) : (
-                  <div className="absolute inset-0 bg-gradient-to-br from-amber-50 via-slate-50 to-stone-100 z-0" />
+                  <div className="absolute inset-0 bg-gray-50 z-0" />
                 )}
-                <div className="absolute inset-0 bg-black/20 z-10 pointer-events-none" />
                 {!showImage && (
                   <div className="relative z-20 flex h-full w-full items-center justify-center text-xs uppercase tracking-[0.3em] text-gray-400">
                     Hero Image
