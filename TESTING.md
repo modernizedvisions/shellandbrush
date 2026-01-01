@@ -35,6 +35,19 @@ curl -s -X POST \
 5) Upload gallery image, save gallery in admin, then refresh `/gallery` to confirm it renders.
 
 ## Debug endpoints
+- `/api/_debug/images-base`
 - `/api/_debug/env-lite`
 - `/api/_debug/tables`
 - `/api/_debug/home-config`
+
+## PowerShell checklist
+```
+$pw="REAL8CHAR"
+$base="https://shellandbrush.pages.dev/images"
+
+curl.exe -s "https://shellandbrush.pages.dev/api/_debug/images-base"
+
+curl.exe -i "https://shellandbrush.pages.dev/api/admin/images/upload?rid=debug&scope=products" -H "x-admin-password: $pw" -F "file=@$env:TEMP\sb_test.png;type=image/png"
+
+wrangler d1 execute DB_NAME --remote --command "UPDATE images SET public_url='$base/'||storage_key WHERE storage_key IS NOT NULL AND storage_key!='' AND (public_url IS NULL OR public_url='' OR public_url NOT LIKE 'https://%');"
+```

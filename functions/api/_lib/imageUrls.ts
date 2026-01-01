@@ -7,19 +7,12 @@ export function isBlockedImageUrl(value?: string | null): boolean {
   return lower.startsWith('data:') || lower.startsWith('blob:');
 }
 
-export function normalizePublicImagesBaseUrl(value?: string | null): string {
-  if (!value) return '';
-  const trimmed = value.trim();
-  if (!/^https:\/\//i.test(trimmed)) return '';
-  return trimmed.replace(/\/+$/, '');
-}
-
 export function resolvePublicImageUrl(
   publicUrl?: string | null,
   storageKey?: string | null,
   baseUrl?: string
 ): string {
-  if (publicUrl && /^https:\/\//i.test(publicUrl)) return publicUrl;
+  if (publicUrl && /^https?:\/\//i.test(publicUrl)) return publicUrl;
   if (storageKey && baseUrl) return `${baseUrl}/${storageKey}`;
   return publicUrl || '';
 }

@@ -1,4 +1,5 @@
-import { normalizePublicImagesBaseUrl, resolvePublicImageUrl } from './_lib/imageUrls';
+import { resolvePublicImageUrl } from './_lib/imageUrls';
+import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
   first<T>(): Promise<T | null>;
@@ -70,7 +71,7 @@ const fetchImageUrlMap = async (
   );
 };
 
-export async function onRequestGet(context: { env: Env }): Promise<Response> {
+export async function onRequestGet(context: { env: Env; request: Request }): Promise<Response> {
   const db = context.env.DB;
   if (!db) {
     return json({ ok: true, config: { ...DEFAULT_CONFIG } }, 200);
@@ -104,7 +105,7 @@ export async function onRequestGet(context: { env: Env }): Promise<Response> {
     ...customOrdersImages.map((img) => img.imageId || ''),
     config.heroImageId || '',
   ].filter(Boolean);
-  const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+  const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
   const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
 
   const hydrate = (images: HeroImageConfig[]) =>

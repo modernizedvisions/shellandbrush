@@ -1,5 +1,6 @@
 import type { Product } from '../../../src/lib/types';
-import { normalizePublicImagesBaseUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
+import { resolvePublicImageUrl } from '../_lib/imageUrls';
+import { getPublicImagesBaseUrl } from '../../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
   run(): Promise<{ success: boolean; error?: string }>;
@@ -133,7 +134,7 @@ export async function onRequestGet(context: {
       row.primary_image_id || '',
       ...(row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : []),
     ].filter(Boolean);
-    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
     const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIdSet, baseUrl);
     const product = mapRowToProduct(row, imageUrlMap);
     return new Response(JSON.stringify({ product }), {

@@ -7,7 +7,12 @@ type Env = {
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': '*',
+    },
   });
 
 export async function onRequestGet(context: { env: Env }): Promise<Response> {
@@ -22,4 +27,8 @@ export async function onRequestGet(context: { env: Env }): Promise<Response> {
     baseContainsImagesPath,
     baseLength: base.length,
   });
+}
+
+export async function onRequestOptions(): Promise<Response> {
+  return json({ ok: true }, 200);
 }

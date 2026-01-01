@@ -1,4 +1,5 @@
-import { isBlockedImageUrl, normalizePublicImagesBaseUrl, resolvePublicImageUrl } from './_lib/imageUrls';
+import { isBlockedImageUrl, resolvePublicImageUrl } from './_lib/imageUrls';
+import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -81,7 +82,7 @@ export async function onRequestGet(context: {
 
     const rows = results || [];
     const imageIds = rows.map((row) => row.image_id || '').filter(Boolean);
-    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
     const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
     const images = rows.map((row) => mapRowToImage(row, schemaInfo, imageUrlMap)).filter(Boolean);
     console.log('[api/gallery][get] fetched', { count: images.length });
@@ -162,7 +163,7 @@ export async function onRequestPut(context: {
     }
 
     const imageIds = normalized.map((img) => img.imageId || '').filter(Boolean);
-    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
     const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
     const blocked = normalized.find((img) => {
       const resolvedUrl = img.imageId ? imageUrlMap.get(img.imageId) || img.url : img.url;

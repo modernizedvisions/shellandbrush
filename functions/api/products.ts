@@ -1,5 +1,6 @@
 import type { Product } from '../../src/lib/types';
-import { normalizePublicImagesBaseUrl, resolvePublicImageUrl } from './_lib/imageUrls';
+import { resolvePublicImageUrl } from './_lib/imageUrls';
+import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -70,7 +71,7 @@ export async function onRequestGet(context: {
       const primary = row.primary_image_id ? [row.primary_image_id] : [];
       return [...primary, ...extra];
     });
-    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
     const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds, baseUrl);
 
     const products: Product[] = rows.map((row) => {

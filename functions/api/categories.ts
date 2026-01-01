@@ -1,5 +1,6 @@
 import { defaultShopCategoryTiles } from '../../src/lib/db/mockData';
-import { normalizePublicImagesBaseUrl, resolvePublicImageUrl } from './_lib/imageUrls';
+import { resolvePublicImageUrl } from './_lib/imageUrls';
+import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -87,7 +88,10 @@ const fetchImageUrlMap = async (
   );
 };
 
-export async function onRequestGet(context: { env: { DB: D1Database; PUBLIC_IMAGES_BASE_URL?: string } }): Promise<Response> {
+export async function onRequestGet(context: {
+  env: { DB: D1Database; PUBLIC_IMAGES_BASE_URL?: string };
+  request: Request;
+}): Promise<Response> {
   try {
     await ensureCategorySchema(context.env.DB);
     await seedDefaultCategories(context.env.DB);
@@ -101,7 +105,7 @@ export async function onRequestGet(context: { env: { DB: D1Database; PUBLIC_IMAG
 
     const rows = results || [];
     const imageIds = rows.flatMap((row) => [row.image_id || '', row.hero_image_id || '']).filter(Boolean);
-    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
     const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds, baseUrl);
     const categories = orderCategories(
       rows.map((row) => mapRowToCategory(row, imageUrlMap)).filter((c): c is Category => Boolean(c))

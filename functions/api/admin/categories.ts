@@ -1,6 +1,7 @@
 import { defaultShopCategoryTiles } from '../../../src/lib/db/mockData';
 import { requireAdmin } from '../_lib/adminAuth';
-import { isBlockedImageUrl, normalizePublicImagesBaseUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
+import { isBlockedImageUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
+import { getPublicImagesBaseUrl } from '../../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -99,7 +100,7 @@ export async function onRequest(context: {
   const auth = requireAdmin(context.request, context.env);
   if (auth) return auth;
   const method = context.request.method.toUpperCase();
-  const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+  const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
 
   try {
     await ensureCategorySchema(context.env.DB);

@@ -1,6 +1,7 @@
 import type { Product } from '../../../../src/lib/types';
 import { requireAdmin } from '../../_lib/adminAuth';
-import { isBlockedImageUrl, normalizePublicImagesBaseUrl, resolvePublicImageUrl } from '../../_lib/imageUrls';
+import { isBlockedImageUrl, resolvePublicImageUrl } from '../../_lib/imageUrls';
+import { getPublicImagesBaseUrl } from '../../../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
   run(): Promise<{ success: boolean; error?: string; meta?: { changes?: number } }>;
@@ -324,7 +325,7 @@ export async function onRequestPut(context: {
       const categoryValue = sanitizeCategory(body.category);
       addSet('category = ?', categoryValue || null);
     }
-    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
     if (primaryImageId || imageIds.length) {
       const resolved = await resolveImageUrlsFromIds(context.env.DB, baseUrl, primaryImageId, imageIds);
       if (primaryImageId && !resolved.primaryUrl && !body.imageUrl) {

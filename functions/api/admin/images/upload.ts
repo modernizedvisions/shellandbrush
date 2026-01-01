@@ -109,7 +109,6 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
     code:
       | 'UPLOAD_FAILED'
       | 'MISSING_R2'
-      | 'MISSING_PUBLIC_BASE_URL'
       | 'BAD_PUBLIC_IMAGES_BASE_URL'
       | 'BAD_MULTIPART'
       | 'R2_PUT_FAILED'
@@ -123,9 +122,8 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
       hasBucketMV: !!env.MV_IMAGES,
       hasPublicBaseUrl: !!env.PUBLIC_IMAGES_BASE_URL,
       hasDB: !!env.DB,
-      publicBaseUrlPreview: env.PUBLIC_IMAGES_BASE_URL
-        ? env.PUBLIC_IMAGES_BASE_URL.replace(/\/+$/, '').slice(0, 80)
-        : null,
+      publicBaseUrlPreview: env.PUBLIC_IMAGES_BASE_URL ? env.PUBLIC_IMAGES_BASE_URL.slice(0, 30) : null,
+      publicBaseUrlLength: env.PUBLIC_IMAGES_BASE_URL ? env.PUBLIC_IMAGES_BASE_URL.length : 0,
       contentType,
     };
     const errorObj =
@@ -180,20 +178,10 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
       });
     }
     const rawBase = env.PUBLIC_IMAGES_BASE_URL ?? '';
-    const trimmedBase = rawBase.trim();
-    if (!trimmedBase) {
-      return respondError({
-        code: 'MISSING_PUBLIC_BASE_URL',
-        message: 'Missing PUBLIC_IMAGES_BASE_URL.',
-        status: 500,
-      });
-    }
-    if (!/^https:\/\//i.test(trimmedBase)) {
-      return respondError({
-        code: 'BAD_PUBLIC_IMAGES_BASE_URL',
-        message: 'PUBLIC_IMAGES_BASE_URL must be an https URL like https://shellandbrush.pages.dev/images',
-        status: 500,
-      });
+    let base = rawBase.trim().replace(/\/+$/, '');
+    if (!/^https:\/\//i.test(base)) {
+      const host = request.headers.get('host') || new URL(request.url).host;
+      base = `https://${host}/images`;
     }
 
     if (!contentType.toLowerCase().includes('multipart/form-data')) {
@@ -288,8 +276,14 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
       });
     }
 
-    const baseUrl = trimmedBase.replace(/\/+$/, '');
-    const publicUrl = `${baseUrl}/${storageKey}`;
+    const publicUrl = `${base}/${storageKey}`;
+    if (!/^https:\/\//i.test(publicUrl)) {
+      return respondError({
+        code: 'BAD_PUBLIC_IMAGES_BASE_URL',
+        message: 'PUBLIC_IMAGES_BASE_URL must be an https URL like https://shellandbrush.pages.dev/images',
+        status: 500,
+      });
+    }
     const uploadRequestId = rid;
 
     const entityType = (form.get('entityType') || new URL(request.url).searchParams.get('entityType')) as string | null;

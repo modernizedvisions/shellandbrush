@@ -1,5 +1,6 @@
 import { requireAdmin } from '../../_lib/adminAuth';
-import { isBlockedImageUrl, normalizePublicImagesBaseUrl, resolvePublicImageUrl } from '../../_lib/imageUrls';
+import { isBlockedImageUrl, resolvePublicImageUrl } from '../../_lib/imageUrls';
+import { getPublicImagesBaseUrl } from '../../../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
   run(): Promise<{ success: boolean; error?: string }>;
@@ -103,7 +104,7 @@ export async function onRequestPut(context: { request: Request; env: Env }): Pro
     ...customOrdersImages.map((img) => img?.imageId || ''),
     incoming.heroImageId || '',
   ].filter(Boolean);
-  const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+  const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
   const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
 
   const sanitized: SiteConfig = {

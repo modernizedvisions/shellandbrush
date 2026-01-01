@@ -1,7 +1,8 @@
 import Stripe from 'stripe';
 import type { Product } from '../../../src/lib/types';
 import { requireAdmin } from '../_lib/adminAuth';
-import { isBlockedImageUrl, normalizePublicImagesBaseUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
+import { isBlockedImageUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
+import { getPublicImagesBaseUrl } from '../../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -290,7 +291,7 @@ export async function onRequestGet(context: {
       const primary = row.primary_image_id ? [row.primary_image_id] : [];
       return [...primary, ...extra];
     });
-    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
     const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds, baseUrl);
     const products: Product[] = rows.map((row) => mapRowToProduct(row, imageUrlMap));
 
@@ -381,7 +382,7 @@ export async function onRequestPost(context: {
     let resolvedExtraUrls = imageUrls;
     let resolvedPrimaryImageId = primaryImageId;
     let resolvedImageIds = imageIds;
-    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
 
     if (primaryImageId || imageIds.length) {
       const resolved = await resolveImageUrlsFromIds(context.env.DB, baseUrl, primaryImageId, imageIds);
