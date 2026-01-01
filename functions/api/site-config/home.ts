@@ -30,6 +30,7 @@ type SiteConfig = {
   heroTitle?: string;
   heroSubtitle?: string;
   heroImageId?: string | null;
+  heroImageUrl?: string;
 };
 
 const DEFAULT_CONFIG: SiteConfig = {
@@ -77,6 +78,17 @@ export async function onRequestGet(context: { env: Env; request: Request }): Pro
     return json({ ok: true, config: { ...DEFAULT_CONFIG } }, 200);
   }
 
+  const isHttpUrl = (value: string) => /^https?:\/\//i.test(value);
+  const resolveFromMaybeKey = (value: string, baseUrl: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    if (isHttpUrl(trimmed)) return trimmed;
+    if (baseUrl && (trimmed.startsWith('shellandbrush/') || trimmed.startsWith('shell-and-brush/'))) {
+      return `${baseUrl}/${trimmed}`;
+    }
+    return trimmed;
+  };
+
   let row: { config_json: string | null; updated_at: string | null } | null = null;
   try {
     await db.prepare(createSiteConfigTable).run();
@@ -109,21 +121,47 @@ export async function onRequestGet(context: { env: Env; request: Request }): Pro
   const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
 
   const hydrate = (images: HeroImageConfig[]) =>
-    images.map((img) => ({
-      ...img,
-      imageUrl: img.imageUrl || (img.imageId ? imageUrlMap.get(img.imageId) || '' : ''),
-    }));
+    images.map((img) => {
+      const fromConfig = resolveFromMaybeKey(img.imageUrl || '', baseUrl);
+      const fromId = img.imageId ? imageUrlMap.get(img.imageId) || '' : '';
+      const resolved = isHttpUrl(fromConfig) ? fromConfig : isHttpUrl(fromId) ? fromId : fromId || fromConfig || '';
+      return {
+        ...img,
+        imageUrl: resolved,
+      };
+    });
 
-  const heroImageUrl = config.heroImageId ? imageUrlMap.get(config.heroImageId) || '' : '';
+  const heroFromConfig = resolveFromMaybeKey(config.heroImageUrl || '', baseUrl);
+  const heroFromId = config.heroImageId ? imageUrlMap.get(config.heroImageId) || '' : '';
+  const hydratedHeroImages = hydrate(heroImages);
+  const heroFromList = hydratedHeroImages[0]?.imageUrl?.trim() || '';
+  const heroUrl = heroFromConfig || heroFromId || heroFromList || '';
+  const heroUrlSource = heroFromConfig
+    ? 'config.heroImageUrl'
+    : heroFromId
+    ? 'config.heroImageId'
+    : heroFromList
+    ? 'config.heroImages[0].imageUrl'
+    : 'none';
 
-  return json({
+  const response: Record<string, unknown> = {
     ok: true,
     config: {
       ...config,
-      heroImages: hydrate(heroImages),
+      heroImages: hydratedHeroImages,
       customOrdersImages: hydrate(customOrdersImages),
-      heroImageUrl,
+      heroImageUrl: heroUrl,
       updatedAt: row?.updated_at || null,
     },
-  });
+  };
+
+  const host = context.request.headers.get('host') || '';
+  if (host.includes('localhost') || host.includes('127.0.0.1')) {
+    response.debug = {
+      heroUrlSource,
+      resolvedHeroUrl: heroUrl,
+    };
+  }
+
+  return json(response);
 }
