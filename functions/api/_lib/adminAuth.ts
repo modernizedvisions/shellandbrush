@@ -6,6 +6,17 @@ type RequireAdminOptions = {
   log?: boolean;
 };
 
+const normalizePassword = (value: string) => {
+  let trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+};
+
 const json = (data: unknown, status: number) =>
   new Response(JSON.stringify(data), {
     status,
@@ -13,8 +24,8 @@ const json = (data: unknown, status: number) =>
   });
 
 export function requireAdmin(req: Request, env: Env, opts?: RequireAdminOptions): Response | null {
-  const expected = (env.ADMIN_PASSWORD ?? '').trim();
-  const provided = (req.headers.get('x-admin-password') ?? '').trim();
+  const expected = normalizePassword(env.ADMIN_PASSWORD ?? '');
+  const provided = normalizePassword(req.headers.get('x-admin-password') ?? '');
   const shouldLog = opts?.log !== false;
 
   if (!expected) {

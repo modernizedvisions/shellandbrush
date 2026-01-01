@@ -3,8 +3,18 @@ type Env = {
 };
 
 export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
-  const expected = (env.ADMIN_PASSWORD ?? '').trim();
-  const provided = (request.headers.get('x-admin-password') ?? '').trim();
+  const normalizePassword = (value: string) => {
+    let trimmed = value.trim();
+    if (
+      (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ) {
+      trimmed = trimmed.slice(1, -1).trim();
+    }
+    return trimmed;
+  };
+  const expected = normalizePassword(env.ADMIN_PASSWORD ?? '');
+  const provided = normalizePassword(request.headers.get('x-admin-password') ?? '');
 
   return new Response(
     JSON.stringify({
