@@ -55,7 +55,7 @@ export function GalleryPage() {
               {galleryImages.length === 0 ? (
                 <div className="text-gray-500">No images yet.</div>
               ) : (
-                <div className="gallery-grid grid grid-cols-2 landscape:grid-cols-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div className="gallery-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {galleryImages.map((item) => (
                     <div key={item.id} className="relative group cursor-pointer">
                       <div
@@ -79,7 +79,7 @@ export function GalleryPage() {
               {soldProducts.length === 0 ? (
                 <div className="text-gray-500">No sold products yet.</div>
               ) : (
-                <div className="sold-grid grid grid-cols-2 landscape:grid-cols-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div className="sold-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {soldProducts.map((item) => (
                     <div key={item.id} className="group bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                       <div
