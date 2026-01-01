@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { CheckCircle, Loader2, Plus } from 'lucide-react';
-import type { Category, CustomOrdersImage, HeroCollageImage } from '../../lib/types';
+import React from 'react';
+import { Plus } from 'lucide-react';
+import type { HeroCollageImage } from '../../lib/types';
 import { AdminSectionHeader } from './AdminSectionHeader';
-import { adminFetchCategories, adminUploadImage } from '../../lib/api';
-import { ShopCategoryCardsSection } from './ShopCategoryCardsSection';
+import { adminUploadImage } from '../../lib/api';
+import { AdminSaveButton } from './AdminSaveButton';
 
 const isBlockedImageUrl = (value?: string) => {
   if (!value) return false;
@@ -16,9 +16,7 @@ const isBlockedImageUrl = (value?: string) => {
 
 export interface AdminHomeTabProps {
   heroImages: HeroCollageImage[];
-  customOrdersImages: CustomOrdersImage[];
   onHeroChange: (images: HeroCollageImage[]) => void;
-  onCustomOrdersChange: (images: CustomOrdersImage[]) => void;
   onSaveHeroConfig: () => Promise<void>;
   homeSaveState: 'idle' | 'saving' | 'success';
   homeSaveError?: string;
@@ -26,40 +24,15 @@ export interface AdminHomeTabProps {
   onHeroRotationToggle?: (enabled: boolean) => void;
 }
 
-const OTHER_ITEMS_CATEGORY = {
-  slug: 'other-items',
-  name: 'Other Items',
-};
-
-const isOtherItemsCategory = (category: Category) =>
-  (category.slug || '').toLowerCase() === OTHER_ITEMS_CATEGORY.slug ||
-  (category.name || '').trim().toLowerCase() === OTHER_ITEMS_CATEGORY.name.toLowerCase();
-
 export function AdminHomeTab({
   heroImages,
-  customOrdersImages,
   onHeroChange,
-  onCustomOrdersChange,
   onSaveHeroConfig,
   homeSaveState,
   homeSaveError,
   heroRotationEnabled = false,
   onHeroRotationToggle,
 }: AdminHomeTabProps) {
-  const [categories, setCategories] = useState<Category[]>([]);
-
-  useEffect(() => {
-    const loadCategories = async () => {
-      try {
-        const apiCategories = await adminFetchCategories();
-        setCategories(normalizeCategoriesList(apiCategories));
-      } catch (error) {
-        console.error('Failed to load categories', error);
-      }
-    };
-    loadCategories();
-  }, []);
-
   return (
     <div className="space-y-12">
       <HeroCollageAdmin
@@ -70,21 +43,6 @@ export function AdminHomeTab({
         saveError={homeSaveError}
         heroRotationEnabled={heroRotationEnabled}
         onHeroRotationToggle={onHeroRotationToggle}
-      />
-
-      <CustomOrdersImagesAdmin
-        images={customOrdersImages}
-        onChange={onCustomOrdersChange}
-        onSave={onSaveHeroConfig}
-        saveState={homeSaveState}
-        saveError={homeSaveError}
-      />
-
-      <ShopCategoryCardsSection
-        categories={categories}
-        onCategoryUpdated={(updated) => {
-          setCategories((prev) => normalizeCategoriesList(prev.map((c) => (c.id === updated.id ? updated : c))));
-        }}
       />
     </div>
   );
@@ -201,7 +159,7 @@ function HeroCollageAdmin({
           </label>
         </div>
         <div className="flex justify-center sm:justify-end">
-          <button
+          <AdminSaveButton
             onClick={async () => {
               if (hasBlocked) {
                 console.error('[admin home] blocked: invalid hero image URLs detected.');
@@ -209,23 +167,9 @@ function HeroCollageAdmin({
               }
               await onSave();
             }}
-            disabled={saveState === 'saving' || hasUploads || hasBlocked}
-            className="inline-flex items-center gap-2 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-60"
-          >
-            {saveState === 'saving' ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Saving...
-              </>
-            ) : saveState === 'success' ? (
-              <>
-                <CheckCircle className="h-4 w-4 text-green-200" />
-                Saved
-              </>
-            ) : (
-              'Save'
-            )}
-          </button>
+            disabled={hasUploads || hasBlocked}
+            saveState={saveState}
+          />
         </div>
         {hasBlocked && <div className="text-xs text-red-600">Upload hero images before saving (no blob/data URLs).</div>}
         {saveError && <div className="text-xs text-red-600">{saveError}</div>}
@@ -314,182 +258,3 @@ function HeroCollageAdmin({
   );
 }
 
-interface CustomOrdersImagesAdminProps {
-  images: CustomOrdersImage[];
-  onChange: (images: CustomOrdersImage[]) => void;
-  onSave: () => Promise<void>;
-  saveState: 'idle' | 'saving' | 'success';
-  saveError?: string;
-}
-
-const normalizeCategoriesList = (items: Category[]): Category[] => {
-  const map = new Map<string, Category>();
-  items.forEach((cat) => {
-    const key = cat.id || cat.name;
-    if (!key) return;
-    const normalized: Category = { ...cat, id: cat.id || key };
-    map.set(key, normalized);
-  });
-  const ordered = Array.from(map.values()).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
-  const otherItems = ordered.filter((cat) => isOtherItemsCategory(cat));
-  const withoutOtherItems = ordered.filter((cat) => !isOtherItemsCategory(cat));
-  return [...withoutOtherItems, ...otherItems];
-};
-
-function CustomOrdersImagesAdmin({ images, onChange, onSave, saveState, saveError }: CustomOrdersImagesAdminProps) {
-  const slots = [0, 1, 2, 3];
-  const hasUploads = images.some((img) => img?.uploading);
-  const hasBlocked = images.some((img) => isBlockedImageUrl(img?.imageUrl));
-
-  const handleFileSelect = async (index: number, file: File) => {
-    const previewUrl = URL.createObjectURL(file);
-    const next = [...images];
-    next[index] = {
-      ...(next[index] || {}),
-      imageUrl: previewUrl,
-      uploading: true,
-      uploadError: undefined,
-    };
-    onChange(next.slice(0, 4));
-
-    try {
-      const result = await adminUploadImage(file, {
-        scope: 'home',
-        entityType: 'home_hero',
-        entityId: 'home',
-        kind: 'custom_orders',
-        sortOrder: index,
-      });
-      URL.revokeObjectURL(previewUrl);
-      const updated = [...next];
-      updated[index] = {
-        ...(updated[index] || {}),
-        imageUrl: result.url,
-        imageId: result.id,
-        uploading: false,
-        uploadError: undefined,
-      };
-      onChange(updated.slice(0, 4));
-    } catch (err) {
-      const updated = [...next];
-      updated[index] = {
-        ...(updated[index] || {}),
-        uploading: false,
-        uploadError: err instanceof Error ? err.message : 'Upload failed',
-      };
-      onChange(updated.slice(0, 4));
-    }
-  };
-
-  const handleRemove = (index: number) => {
-    const next = [...images];
-    next.splice(index, 1);
-    onChange(next);
-  };
-
-  return (
-    <section className="space-y-4 rounded-lg border bg-white p-4 shadow-sm">
-      <div className="space-y-2">
-        <AdminSectionHeader
-          title="Custom Orders"
-          subtitle="images shown beside the custom orders section."
-        />
-        <div className="flex justify-center sm:justify-end">
-          <button
-            onClick={async () => {
-              if (hasBlocked) {
-                console.error('[admin home] blocked: invalid custom orders image URLs detected.');
-                return;
-              }
-              await onSave();
-            }}
-            disabled={saveState === 'saving' || hasUploads || hasBlocked}
-            className="inline-flex items-center gap-2 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-60"
-          >
-            {saveState === 'saving' ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Saving...
-              </>
-            ) : saveState === 'success' ? (
-              <>
-                <CheckCircle className="h-4 w-4 text-green-200" />
-                Saved
-              </>
-            ) : (
-              'Save'
-            )}
-          </button>
-        </div>
-        {hasBlocked && <div className="text-xs text-red-600">Upload images before saving (no blob/data URLs).</div>}
-        {saveError && <div className="text-xs text-red-600">{saveError}</div>}
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {slots.map((slot) => {
-          const image = images[slot];
-          const inputId = `custom-orders-${slot}`;
-          return (
-            <div
-              key={slot}
-              className="space-y-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                const file = e.dataTransfer.files?.[0];
-                if (file) handleFileSelect(slot, file);
-              }}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-800">Image {slot + 1}</span>
-                <div className="flex items-center gap-2">
-                  {image?.imageUrl && (
-                    <button type="button" onClick={() => handleRemove(slot)} className="text-xs text-red-600 hover:text-red-700">
-                      Remove
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => document.getElementById(inputId)?.click()}
-                    className="text-xs text-slate-700 underline hover:text-slate-900"
-                  >
-                    {image?.imageUrl ? 'Replace' : 'Upload'}
-                  </button>
-                </div>
-              </div>
-
-              <div className="aspect-[3/4] rounded-md border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center overflow-hidden">
-                {image?.imageUrl ? (
-                  <img src={image.imageUrl} alt={image.alt || `Custom orders ${slot + 1}`} className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex flex-col items-center text-slate-500 text-sm">
-                    <Plus className="h-6 w-6 mb-1" />
-                    <span>Drop or upload</span>
-                  </div>
-                )}
-              </div>
-              {image?.uploading && (
-                <div className="text-xs text-slate-500">Uploading...</div>
-              )}
-              {image?.uploadError && (
-                <div className="text-xs text-red-600">{image.uploadError}</div>
-              )}
-
-              <input
-                id={inputId}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileSelect(slot, file);
-                  (e.target as HTMLInputElement).value = '';
-                }}
-              />
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}

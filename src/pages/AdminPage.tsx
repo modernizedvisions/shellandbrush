@@ -20,7 +20,7 @@ import {
   getStoredAdminPassword,
   setStoredAdminPassword,
 } from '../lib/adminAuth';
-import { CustomOrdersImage, GalleryImage, HeroCollageImage, HeroConfig, Product } from '../lib/types';
+import { GalleryImage, HeroCollageImage, HeroConfig, Product } from '../lib/types';
 import type { AdminOrder } from '../lib/db/orders';
 import { AdminOrdersTab } from '../components/admin/AdminOrdersTab';
 import { AdminSoldTab } from '../components/admin/AdminSoldTab';
@@ -103,7 +103,6 @@ export function AdminPage() {
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [heroConfig, setHeroConfig] = useState<HeroConfig>({
     heroImages: [],
-    customOrdersImages: [],
     heroRotationEnabled: false,
   });
   const [activeTab, setActiveTab] = useState<'orders' | 'shop' | 'messages' | 'customOrders' | 'images' | 'sold'>('orders');
@@ -158,10 +157,8 @@ export function AdminPage() {
     try {
       const hasUploads =
         (heroConfig.heroImages || []).some((img) => img?.uploading) ||
-        (heroConfig.customOrdersImages || []).some((img) => img?.uploading);
-      const hasErrors =
-        (heroConfig.heroImages || []).some((img) => img?.uploadError) ||
-        (heroConfig.customOrdersImages || []).some((img) => img?.uploadError);
+    const hasErrors =
+        (heroConfig.heroImages || []).some((img) => img?.uploadError);
       if (hasUploads) {
         setHomeSaveState('idle');
         console.error('Cannot save while hero images are uploading.');
@@ -174,7 +171,6 @@ export function AdminPage() {
       }
       const configToSave: HeroConfig = {
         heroImages: (heroConfig.heroImages || []).filter((img) => !!img?.imageUrl).slice(0, 3),
-        customOrdersImages: (heroConfig.customOrdersImages || []).filter((img) => !!img?.imageUrl).slice(0, 4),
         heroRotationEnabled: !!heroConfig.heroRotationEnabled,
       };
       await saveHomeHeroConfig(configToSave);
@@ -285,14 +281,13 @@ export function AdminPage() {
         }),
         fetchHomeHeroConfig().catch((err) => {
           console.error('Failed to load home hero config', err);
-          return { heroImages: [], customOrdersImages: [] };
+          return { heroImages: [] };
         }),
       ]);
       setSoldProducts(soldData);
       setGalleryImages(galleryData);
       setHeroConfig({
         heroImages: (heroData.heroImages || []).slice(0, 3),
-        customOrdersImages: (heroData.customOrdersImages || []).slice(0, 4),
         heroRotationEnabled: !!heroData.heroRotationEnabled,
       });
     } catch (err) {
@@ -1162,9 +1157,7 @@ export function AdminPage() {
           <div className="space-y-10">
             <AdminHomeTab
               heroImages={heroConfig.heroImages || []}
-              customOrdersImages={heroConfig.customOrdersImages || []}
               onHeroChange={(images) => setHeroConfig((prev) => ({ ...prev, heroImages: images }))}
-              onCustomOrdersChange={(images) => setHeroConfig((prev) => ({ ...prev, customOrdersImages: images }))}
               onSaveHeroConfig={handleSaveHeroConfig}
               homeSaveState={homeSaveState}
               homeSaveError={homeSaveError}

@@ -71,7 +71,7 @@ export default function HeroSection() {
           </div>
 
           <div className="order-1 md:order-2 flex justify-center md:justify-end">
-            <div className="w-full max-w-sm sm:max-w-md md:max-w-xl">
+            <div className="w-full max-w-sm sm:max-w-md md:max-w-2xl">
               <div className="relative aspect-[4/5] overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 shadow-sm">
                 {showImage ? (
                   <img

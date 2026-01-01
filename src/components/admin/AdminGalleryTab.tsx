@@ -1,8 +1,9 @@
 import React from 'react';
-import { CheckCircle, Eye, EyeOff, Plus, Trash2, Upload } from 'lucide-react';
+import { Eye, EyeOff, Plus, Trash2, Upload } from 'lucide-react';
 import type { GalleryImage } from '../../lib/types';
 import { adminUploadImage } from '../../lib/api';
 import { AdminSectionHeader } from './AdminSectionHeader';
+import { AdminSaveButton } from './AdminSaveButton';
 
 const isBlockedImageUrl = (value?: string) => {
   if (!value) return false;
@@ -170,23 +171,11 @@ function GalleryAdmin({
       <div className="mb-4">
         <AdminSectionHeader title={title} subtitle={description} />
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
-          <button
+          <AdminSaveButton
             onClick={handleSaveClick}
-            disabled={saveState === 'saving' || images.some((img) => img.uploading) || blockedCount > 0}
-            className="inline-flex items-center gap-2 px-3 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
-          >
-            {saveState === 'saving' ? (
-              <>
-                <Upload className="w-4 h-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <CheckCircle className="w-4 h-4" />
-                Save Changes
-              </>
-            )}
-          </button>
+            disabled={images.some((img) => img.uploading) || blockedCount > 0}
+            saveState={saveState}
+          />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
