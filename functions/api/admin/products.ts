@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import type { Product } from '../../../src/lib/types';
 import { requireAdmin } from '../_lib/adminAuth';
+import { isBlockedImageUrl } from '../_lib/imageUrls';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -59,16 +60,30 @@ type NewProductInput = {
 
 const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>): Product => {
   const imageIds = row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : [];
-  const primaryId = row.primary_image_id || imageIds[0] || '';
-  const primaryFromIds = primaryId ? imageUrlMap.get(primaryId) || '' : '';
-  const extraFromIds = imageIds.map((id) => imageUrlMap.get(id)).filter((url): url is string => !!url);
   const legacyExtras = row.image_urls_json ? safeParseJsonArray(row.image_urls_json) : [];
   const legacyPrimary = row.image_url || legacyExtras[0] || '';
-  const primaryImage = primaryFromIds || legacyPrimary || '';
-  const allExtras = primaryFromIds ? extraFromIds : legacyExtras;
-  const resolvedImageUrls = primaryImage
-    ? [primaryImage, ...allExtras.filter((url) => url !== primaryImage)]
-    : allExtras;
+
+  let primaryImage = legacyPrimary;
+  let resolvedImageUrls = legacyExtras;
+
+  if (!primaryImage) {
+    const primaryId = row.primary_image_id || imageIds[0] || '';
+    const primaryFromIds = primaryId ? imageUrlMap.get(primaryId) || '' : '';
+    const extraFromIds = imageIds.map((id) => imageUrlMap.get(id)).filter((url): url is string => !!url);
+    primaryImage = primaryFromIds || '';
+    resolvedImageUrls = primaryImage
+      ? [primaryImage, ...extraFromIds.filter((url) => url !== primaryImage)]
+      : extraFromIds;
+  } else if (!resolvedImageUrls.length && imageIds.length) {
+    const extraFromIds = imageIds.map((id) => imageUrlMap.get(id)).filter((url): url is string => !!url);
+    resolvedImageUrls = primaryImage
+      ? [primaryImage, ...extraFromIds.filter((url) => url !== primaryImage)]
+      : extraFromIds;
+  }
+
+  if (primaryImage) {
+    resolvedImageUrls = [primaryImage, ...resolvedImageUrls.filter((url) => url !== primaryImage)];
+  }
 
   return {
     id: row.id,
@@ -130,6 +145,8 @@ const validateNewProduct = (input: Partial<NewProductInput>) => {
   }
   return null;
 };
+
+const hasBlockedUrls = (urls: Array<string | null | undefined>) => urls.some((url) => isBlockedImageUrl(url));
 
 const REQUIRED_PRODUCT_COLUMNS: Record<string, string> = {
   image_urls_json: 'image_urls_json TEXT',
@@ -293,6 +310,12 @@ export async function onRequestPost(context: {
     if (error) {
       return new Response(JSON.stringify({ error }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
+    if (hasBlockedUrls([body.imageUrl, ...imageUrls])) {
+      return new Response(JSON.stringify({ error: 'Images must be uploaded first; only URLs allowed.' }), {
+        status: 413,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     const id = crypto.randomUUID();
     const slug = toSlug(body.name!);
@@ -322,6 +345,12 @@ export async function onRequestPost(context: {
       resolvedImageIds = resolvedExtraUrls
         .map((url) => urlToId.get(url))
         .filter((val): val is string => !!val);
+    }
+    if (hasBlockedUrls([resolvedPrimaryUrl, ...resolvedExtraUrls])) {
+      return new Response(JSON.stringify({ error: 'Images must be uploaded first; only URLs allowed.' }), {
+        status: 413,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     await ensureProductSchema(context.env.DB);

@@ -82,7 +82,7 @@ export async function onRequestGet(context: { env: Env }): Promise<Response> {
   const hydrate = (images: HeroImageConfig[]) =>
     images.map((img) => ({
       ...img,
-      imageUrl: img.imageId ? imageUrlMap.get(img.imageId) || img.imageUrl || '' : img.imageUrl || '',
+      imageUrl: img.imageUrl || (img.imageId ? imageUrlMap.get(img.imageId) || '' : ''),
     }));
 
   const heroImageUrl = config.heroImageId ? imageUrlMap.get(config.heroImageId) || '' : '';

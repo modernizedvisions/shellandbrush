@@ -1,5 +1,6 @@
 import type { Product } from '../../../../src/lib/types';
 import { requireAdmin } from '../../_lib/adminAuth';
+import { isBlockedImageUrl } from '../../_lib/imageUrls';
 
 type D1PreparedStatement = {
   run(): Promise<{ success: boolean; error?: string; meta?: { changes?: number } }>;
@@ -51,16 +52,30 @@ type UpdateProductInput = {
 
 const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>): Product => {
   const imageIds = row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : [];
-  const primaryId = row.primary_image_id || imageIds[0] || '';
-  const primaryFromIds = primaryId ? imageUrlMap.get(primaryId) || '' : '';
-  const extraFromIds = imageIds.map((id) => imageUrlMap.get(id)).filter((url): url is string => !!url);
   const legacyExtras = row.image_urls_json ? safeParseJsonArray(row.image_urls_json) : [];
   const legacyPrimary = row.image_url || legacyExtras[0] || '';
-  const primaryImage = primaryFromIds || legacyPrimary || '';
-  const allExtras = primaryFromIds ? extraFromIds : legacyExtras;
-  const resolvedImageUrls = primaryImage
-    ? [primaryImage, ...allExtras.filter((url) => url !== primaryImage)]
-    : allExtras;
+
+  let primaryImage = legacyPrimary;
+  let resolvedImageUrls = legacyExtras;
+
+  if (!primaryImage) {
+    const primaryId = row.primary_image_id || imageIds[0] || '';
+    const primaryFromIds = primaryId ? imageUrlMap.get(primaryId) || '' : '';
+    const extraFromIds = imageIds.map((id) => imageUrlMap.get(id)).filter((url): url is string => !!url);
+    primaryImage = primaryFromIds || '';
+    resolvedImageUrls = primaryImage
+      ? [primaryImage, ...extraFromIds.filter((url) => url !== primaryImage)]
+      : extraFromIds;
+  } else if (!resolvedImageUrls.length && imageIds.length) {
+    const extraFromIds = imageIds.map((id) => imageUrlMap.get(id)).filter((url): url is string => !!url);
+    resolvedImageUrls = primaryImage
+      ? [primaryImage, ...extraFromIds.filter((url) => url !== primaryImage)]
+      : extraFromIds;
+  }
+
+  if (primaryImage) {
+    resolvedImageUrls = [primaryImage, ...resolvedImageUrls.filter((url) => url !== primaryImage)];
+  }
 
   return {
     id: row.id,
@@ -115,6 +130,8 @@ const validateUpdate = (input: UpdateProductInput) => {
   }
   return null;
 };
+
+const hasBlockedUrls = (urls: Array<string | null | undefined>) => urls.some((url) => isBlockedImageUrl(url));
 
 const REQUIRED_PRODUCT_COLUMNS: Record<string, string> = {
   image_urls_json: 'image_urls_json TEXT',
@@ -252,12 +269,7 @@ export async function onRequestPut(context: {
       });
     }
 
-    const hasDataUrl = (value?: string | null) =>
-      typeof value === 'string' && value.trim().toLowerCase().startsWith('data:image/');
-    const hasDataUrlInArray = (value?: string[] | null) =>
-      Array.isArray(value) && value.some((entry) => hasDataUrl(entry));
-
-    if (hasDataUrl(body.imageUrl) || hasDataUrlInArray(body.imageUrls)) {
+    if (hasBlockedUrls([body.imageUrl, ...(Array.isArray(body.imageUrls) ? body.imageUrls : [])])) {
       return new Response(
         JSON.stringify({ error: 'Images must be uploaded first; only URLs allowed.' }),
         {
@@ -316,6 +328,12 @@ export async function onRequestPut(context: {
         : Array.isArray(body.imageUrls)
         ? body.imageUrls
         : [];
+      if (hasBlockedUrls([primaryUrl, ...extraUrls])) {
+        return new Response(JSON.stringify({ error: 'Images must be uploaded first; only URLs allowed.' }), {
+          status: 413,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       addSet('primary_image_id = ?', primaryImageId);
       addSet('image_ids_json = ?', JSON.stringify(imageIds));
       addSet('image_url = ?', primaryUrl ? primaryUrl : null);
@@ -323,6 +341,12 @@ export async function onRequestPut(context: {
     } else if (body.imageUrl !== undefined || body.imageUrls !== undefined) {
       const primary = typeof body.imageUrl === 'string' ? body.imageUrl.trim() : '';
       const extras = Array.isArray(body.imageUrls) ? body.imageUrls : [];
+      if (hasBlockedUrls([primary, ...extras])) {
+        return new Response(JSON.stringify({ error: 'Images must be uploaded first; only URLs allowed.' }), {
+          status: 413,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       addSet('image_url = ?', primary ? primary : null);
       addSet('image_urls_json = ?', JSON.stringify(extras));
       const urlToId = await resolveImageIdsFromUrls(context.env.DB, [primary, ...extras]);

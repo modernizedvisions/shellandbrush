@@ -20,6 +20,7 @@ type Env = {
 const BUILD_FINGERPRINT = 'upload-fingerprint-2025-12-21-a';
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ALLOWED_SCOPES = new Set(['products', 'gallery', 'home', 'categories']);
 
 const corsHeaders = (request?: Request | null) => ({
   'Access-Control-Allow-Origin': request?.headers.get('Origin') || '*',
@@ -109,23 +110,26 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
   });
 
   try {
-    const bucket = env.IMAGES_BUCKET || env.MV_IMAGES;
-    if (!bucket || !env.PUBLIC_IMAGES_BASE_URL) {
+    const bucket = env.IMAGES_BUCKET ?? env.MV_IMAGES;
+    if (!bucket) {
       return json(
         withFingerprint({
-          error: 'Missing R2 configuration',
-          envPresent: {
-            IMAGES_BUCKET: !!env.IMAGES_BUCKET,
-            MV_IMAGES: !!env.MV_IMAGES,
-            PUBLIC_IMAGES_BASE_URL: !!env.PUBLIC_IMAGES_BASE_URL,
-          },
+          error: 'Missing images bucket binding',
+          details: 'Bind IMAGES_BUCKET or MV_IMAGES to R2.',
         }),
         500,
         corsHeaders(request)
       );
     }
-    if (!env.DB) {
-      return json(withFingerprint({ error: 'Missing D1 binding', details: 'DB not configured' }), 500, corsHeaders(request));
+    if (!env.PUBLIC_IMAGES_BASE_URL) {
+      return json(
+        withFingerprint({
+          error: 'Missing PUBLIC_IMAGES_BASE_URL',
+          details: 'Set PUBLIC_IMAGES_BASE_URL to the public R2 base URL.',
+        }),
+        500,
+        corsHeaders(request)
+      );
     }
 
     if (!contentType.toLowerCase().includes('multipart/form-data')) {
@@ -186,7 +190,23 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
     });
 
     const ext = extensionForMime(file.type);
-    const storageKey = `${crypto.randomUUID()}.${ext}`;
+    const url = new URL(request.url);
+    const rawScope = (url.searchParams.get('scope') || '').toLowerCase();
+    const scope = rawScope || 'products';
+    if (!ALLOWED_SCOPES.has(scope)) {
+      return json(
+        withFingerprint({
+          error: 'Invalid scope',
+          details: `scope must be one of: ${Array.from(ALLOWED_SCOPES).join(', ')}`,
+        }),
+        400,
+        corsHeaders(request)
+      );
+    }
+    const now = new Date();
+    const year = String(now.getUTCFullYear());
+    const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const storageKey = `shell-and-brush/${scope}/${year}/${month}/${crypto.randomUUID()}.${ext}`;
 
     try {
       await bucket.put(storageKey, file.stream(), {
@@ -202,13 +222,13 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
       );
     }
 
-    let baseUrl = env.PUBLIC_IMAGES_BASE_URL.replace(/\/$/, '');
+    let baseUrl = env.PUBLIC_IMAGES_BASE_URL.replace(/\/+$/, '');
     if (request.url.startsWith('https://') && baseUrl.startsWith('http://')) {
       baseUrl = `https://${baseUrl.slice('http://'.length)}`;
     }
     const publicUrl = `${baseUrl}/${storageKey}`;
     const uploadRequestId =
-      new URL(request.url).searchParams.get('rid') ||
+      url.searchParams.get('rid') ||
       request.headers.get('x-upload-request-id') ||
       null;
 
@@ -223,55 +243,51 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
       | null;
     const isPrimary = isPrimaryRaw ? (isPrimaryRaw === '1' || isPrimaryRaw.toLowerCase() === 'true' ? 1 : 0) : 0;
     const sortOrder = Number.isFinite(Number(sortOrderRaw)) ? Number(sortOrderRaw) : 0;
-    const imageId = crypto.randomUUID();
-
-    try {
-      await env.DB.prepare(
-        `INSERT INTO images (
-          id, storage_provider, storage_key, public_url, content_type, size_bytes, original_filename,
-          entity_type, entity_id, kind, is_primary, sort_order, upload_request_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
-      )
-        .bind(
-          imageId,
-          'r2',
-          storageKey,
-          publicUrl,
-          file.type || null,
-          file.size || null,
-          file.name || null,
-          entityType || null,
-          entityId || null,
-          kind || null,
-          isPrimary,
-          sortOrder,
-          uploadRequestId
+    let dbImageId: string | null = null;
+    if (env.DB) {
+      dbImageId = crypto.randomUUID();
+      try {
+        await env.DB.prepare(
+          `INSERT INTO images (
+            id, storage_provider, storage_key, public_url, content_type, size_bytes, original_filename,
+            entity_type, entity_id, kind, is_primary, sort_order, upload_request_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
         )
-        .run();
-    } catch (err) {
-      console.error('[images/upload] D1 insert failed', err);
-      return json(
-        withFingerprint({ error: 'Image upload failed', details: 'DB insert error' }),
-        500,
-        corsHeaders(request)
-      );
+          .bind(
+            dbImageId,
+            'r2',
+            storageKey,
+            publicUrl,
+            file.type || null,
+            file.size || null,
+            file.name || null,
+            entityType || null,
+            entityId || null,
+            kind || null,
+            isPrimary,
+            sortOrder,
+            uploadRequestId
+          )
+          .run();
+      } catch (err) {
+        console.error('[images/upload] D1 insert failed', err);
+        return json(
+          withFingerprint({ error: 'Image upload failed', details: 'DB insert error' }),
+          500,
+          corsHeaders(request)
+        );
+      }
     }
 
-    return json(
-      withFingerprint({
-        image: {
-          id: imageId,
-          storageKey,
-          publicUrl,
-          contentType: file.type || null,
-          sizeBytes: file.size || null,
-          originalFilename: file.name || null,
-          uploadRequestId,
-        },
-      }),
-      200,
-      corsHeaders(request)
-    );
+    const responsePayload: Record<string, unknown> = withFingerprint({
+      id: storageKey,
+      url: publicUrl,
+    });
+    if (dbImageId && dbImageId !== storageKey) {
+      responsePayload.dbImageId = dbImageId;
+    }
+
+    return json(responsePayload, 200, corsHeaders(request));
   } catch (err) {
     const details = err instanceof Error ? `${err.message}\n${err.stack || ''}` : String(err);
     console.error('[images/upload] Unexpected error', details);

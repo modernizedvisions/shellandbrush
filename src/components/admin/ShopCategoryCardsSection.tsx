@@ -10,10 +10,19 @@ interface ShopCategoryCardsSectionProps {
 }
 
 const SLOT_COUNT = 4;
+const isBlockedImageUrl = (value?: string) => {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.length > 2000) return true;
+  const lower = trimmed.toLowerCase();
+  return lower.startsWith('data:') || lower.startsWith('blob:') || lower.includes(';base64,');
+};
 
 export function ShopCategoryCardsSection({ categories = [], onCategoryUpdated }: ShopCategoryCardsSectionProps) {
   const [tiles, setTiles] = useState<ShopCategoryTile[]>([]);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success'>('idle');
+  const [saveError, setSaveError] = useState<string>('');
   const [activeTileId, setActiveTileId] = useState<string | null>(null);
   const [categoryState, setCategoryState] = useState<Category[]>(categories);
   const [uploadingTiles, setUploadingTiles] = useState<Record<string, boolean>>({});
@@ -92,6 +101,7 @@ export function ShopCategoryCardsSection({ categories = [], onCategoryUpdated }:
 
     try {
       const result = await adminUploadImage(file, {
+        scope: 'categories',
         entityType: 'category',
         entityId: categoryId,
         kind: 'hero',
@@ -115,6 +125,7 @@ export function ShopCategoryCardsSection({ categories = [], onCategoryUpdated }:
 
   const handleSave = async () => {
     setSaveState('saving');
+    setSaveError('');
     try {
       const withSlots = tiles.map((tile, index) => {
         const category = categoryOptions.find((c) => c.id === tile.categoryId);
@@ -124,6 +135,12 @@ export function ShopCategoryCardsSection({ categories = [], onCategoryUpdated }:
           imageUrl: category?.heroImageUrl || category?.imageUrl || tile.imageUrl || '',
         };
       });
+      const hasBlocked = withSlots.some((tile) => isBlockedImageUrl(tile.imageUrl));
+      if (hasBlocked) {
+        setSaveState('idle');
+        setSaveError('Upload category images before saving (no blob/data URLs).');
+        return;
+      }
       await saveShopCategoryTiles(withSlots);
       setTiles(withSlots.slice(0, SLOT_COUNT));
       setSaveState('success');
@@ -181,6 +198,7 @@ export function ShopCategoryCardsSection({ categories = [], onCategoryUpdated }:
             )}
           </button>
         </div>
+        {saveError && <div className="mt-2 text-xs text-red-600">{saveError}</div>}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

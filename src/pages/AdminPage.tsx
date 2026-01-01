@@ -169,8 +169,8 @@ export function AdminPage() {
         return;
       }
       const configToSave: HeroConfig = {
-        heroImages: (heroConfig.heroImages || []).filter((img) => !!img?.imageId).slice(0, 3),
-        customOrdersImages: (heroConfig.customOrdersImages || []).filter((img) => !!img?.imageId).slice(0, 4),
+        heroImages: (heroConfig.heroImages || []).filter((img) => !!img?.imageUrl).slice(0, 3),
+        customOrdersImages: (heroConfig.customOrdersImages || []).filter((img) => !!img?.imageUrl).slice(0, 4),
         heroRotationEnabled: !!heroConfig.heroRotationEnabled,
       };
       await saveHomeHeroConfig(configToSave);
@@ -377,14 +377,14 @@ export function AdminPage() {
       )
     );
     try {
-      const result = await adminUploadImage(file);
+      const result = await adminUploadImage(file, { scope: 'products', entityType: 'product' });
       URL.revokeObjectURL(previewUrl);
       setImages((prev) =>
         prev.map((img) =>
           img.id === id
             ? {
                 ...img,
-                url: result.publicUrl,
+                url: result.url,
                 imageId: result.id,
                 file: undefined,
                 uploading: false,
@@ -397,7 +397,7 @@ export function AdminPage() {
       console.debug('[shop images] upload success', {
         id,
         name: file.name,
-        url: result.publicUrl,
+        url: result.url,
       });
       return result;
     } catch (err) {
@@ -525,9 +525,9 @@ export function AdminPage() {
           console.debug('[shop images] upload success', {
             name: file.name,
             id: result.id,
-            url: result.publicUrl,
+            url: result.url,
           });
-          console.debug('[shop images] settled', { name: file.name, ok: true, urlOrError: result.publicUrl });
+          console.debug('[shop images] settled', { name: file.name, ok: true, urlOrError: result.url });
           succeeded += 1;
         } catch (err) {
           failed += 1;
@@ -544,8 +544,7 @@ export function AdminPage() {
       setImages((prev) => {
         const next = prev.map((img) => {
           if (!img.uploading) return img;
-          const hasFinalUrl =
-            !!img.url && !img.url.startsWith('blob:') && !img.url.startsWith('data:');
+  const hasFinalUrl = !!img.url && !isBlockedImageUrl(img.url);
           const hasError = !!img.uploadError;
           if (!hasFinalUrl && !hasError) {
             return {
@@ -631,8 +630,8 @@ export function AdminPage() {
   };
 
   const uploadImage = async (file: File): Promise<{ id: string; url: string }> => {
-    const result = await adminUploadImage(file);
-    return { id: result.id, url: result.publicUrl };
+    const result = await adminUploadImage(file, { scope: 'products', entityType: 'product' });
+    return { id: result.id, url: result.url };
   };
 
   const resolveImageUrls = async (
@@ -664,7 +663,7 @@ export function AdminPage() {
     const urls = normalized
       .filter((img) => !img.uploading && !img.uploadError)
       .map((img) => img.url)
-      .filter((url) => !!url && !url.startsWith('blob:') && !url.startsWith('data:'));
+      .filter((url) => !!url && !isBlockedImageUrl(url));
     const unique = Array.from(new Set(urls));
     const primary = unique[0] || '';
     const rest = primary ? unique.filter((url) => url !== primary) : unique;
@@ -1274,7 +1273,11 @@ function mergeImages(
 
 function isBlockedImageUrl(value?: string) {
   if (!value) return false;
-  return value.startsWith('data:image/') || value.includes(';base64,') || value.startsWith('blob:');
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.length > 2000) return true;
+  const lower = trimmed.toLowerCase();
+  return lower.startsWith('data:') || lower.startsWith('blob:') || lower.includes(';base64,');
 }
 
 function describeImageKinds(images: ManagedImage[]) {

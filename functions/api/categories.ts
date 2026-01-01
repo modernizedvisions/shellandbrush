@@ -111,10 +111,12 @@ export async function onRequestGet(context: { env: { DB: D1Database } }): Promis
 
 const mapRowToCategory = (row: CategoryRow, imageUrlMap: Map<string, string>): Category | null => {
   if (!row || !row.id || !row.name || !row.slug) return null;
-  const imageUrl = row.image_id ? imageUrlMap.get(row.image_id) || row.image_url || undefined : row.image_url || undefined;
-  const heroImageUrl = row.hero_image_id
-    ? imageUrlMap.get(row.hero_image_id) || row.hero_image_url || undefined
-    : row.hero_image_url || undefined;
+  const imageUrl =
+    row.image_url ||
+    (row.image_id ? imageUrlMap.get(row.image_id) || undefined : undefined);
+  const heroImageUrl =
+    row.hero_image_url ||
+    (row.hero_image_id ? imageUrlMap.get(row.hero_image_id) || undefined : undefined);
   return {
     id: row.id,
     name: row.name,

@@ -4,6 +4,15 @@ import type { GalleryImage } from '../../lib/types';
 import { adminUploadImage } from '../../lib/api';
 import { AdminSectionHeader } from './AdminSectionHeader';
 
+const isBlockedImageUrl = (value?: string) => {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.length > 2000) return true;
+  const lower = trimmed.toLowerCase();
+  return lower.startsWith('data:') || lower.startsWith('blob:') || lower.includes(';base64,');
+};
+
 export interface AdminGalleryTabProps {
   images: GalleryImage[];
   onChange: React.Dispatch<React.SetStateAction<GalleryImage[]>>;
@@ -51,6 +60,7 @@ function GalleryAdmin({
   description = 'Add, hide, or remove gallery images.', // Uses PUT /api/gallery with payload { images: GalleryImage[] }
   maxImages,
 }: GalleryAdminProps) {
+  const blockedCount = images.filter((img) => isBlockedImageUrl(img.imageUrl)).length;
   const handleAddImages = async (files: FileList | null) => {
     if (!files) return;
     const fileArray = Array.from(files);
@@ -73,6 +83,7 @@ function GalleryAdmin({
       const placeholder = placeholders[i];
       try {
         const result = await adminUploadImage(file, {
+          scope: 'gallery',
           entityType: 'gallery',
           entityId: 'gallery',
           kind: 'gallery',
@@ -84,7 +95,7 @@ function GalleryAdmin({
             img.id === placeholder.id
               ? {
                   ...img,
-                  imageUrl: result.publicUrl,
+                  imageUrl: result.url,
                   imageId: result.id,
                   uploading: false,
                   uploadError: undefined,
@@ -142,14 +153,22 @@ function GalleryAdmin({
     handleAddImages(e.dataTransfer.files);
   };
 
+  const handleSaveClick = async () => {
+    if (blockedCount > 0) {
+      console.error('[admin gallery] blocked: invalid image URLs detected.');
+      return;
+    }
+    await onSave();
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
       <div className="mb-4">
         <AdminSectionHeader title={title} subtitle={description} />
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
           <button
-            onClick={onSave}
-            disabled={saveState === 'saving' || images.some((img) => img.uploading)}
+            onClick={handleSaveClick}
+            disabled={saveState === 'saving' || images.some((img) => img.uploading) || blockedCount > 0}
             className="inline-flex items-center gap-2 px-3 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
           >
             {saveState === 'saving' ? (
@@ -189,6 +208,7 @@ function GalleryAdmin({
           {saveState === 'success' && 'Gallery saved.'}
           {saveState === 'error' && 'Save failed. Please retry.'}
           {saveState === 'idle' && images.some((img) => img.uploading) && 'Uploading images...'}
+          {saveState === 'idle' && blockedCount > 0 && 'Upload images before saving (no blob/data URLs).'}
           {saveState === 'idle' && images.length === 0 && 'No images saved yet.'}
         </div>
       </div>

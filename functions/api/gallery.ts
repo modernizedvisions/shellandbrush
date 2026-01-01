@@ -1,3 +1,5 @@
+import { isBlockedImageUrl } from './_lib/imageUrls';
+
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
   run(): Promise<{ success: boolean; error?: string }>;
@@ -110,11 +112,16 @@ export async function onRequestPut(context: { env: { DB?: D1Database }; request:
     const images = body.images;
     console.log('[api/gallery] payload keys', Object.keys(body || {}), 'count', images.length, 'method', context.request.method);
 
+    let blockedInput = false;
     const normalized = images
       .map((img: any, idx: number) => {
         const imageId = typeof img?.imageId === 'string' ? img.imageId : null;
         const url = typeof img?.imageUrl === 'string' ? img.imageUrl : typeof img?.url === 'string' ? img.url : null;
         if (!url && !imageId) return null;
+        if (!imageId && isBlockedImageUrl(url)) {
+          blockedInput = true;
+          return null;
+        }
         return {
           id: img.id || safeId(`gallery-${idx}`),
           url: url || '',
@@ -134,8 +141,19 @@ export async function onRequestPut(context: { env: { DB?: D1Database }; request:
       createdAt: string;
     }[];
 
+    if (blockedInput) {
+      return json({ error: 'Images must be uploaded first; only URLs allowed.' }, 413);
+    }
+
     const imageIds = normalized.map((img) => img.imageId || '').filter(Boolean);
     const imageUrlMap = await fetchImageUrlMap(db, imageIds);
+    const blocked = normalized.find((img) => {
+      const resolvedUrl = img.imageId ? imageUrlMap.get(img.imageId) || img.url : img.url;
+      return isBlockedImageUrl(resolvedUrl);
+    });
+    if (blocked) {
+      return json({ error: 'Images must be uploaded first; only URLs allowed.' }, 413);
+    }
     const statements = [
       db.prepare(`DELETE FROM gallery_images;`),
       ...normalized.map((img) =>
@@ -238,7 +256,7 @@ export const onRequestPost = onRequestPut;
 
 function mapRowToImage(row: GalleryRow | null | undefined, _schema: SchemaInfo, imageUrlMap: Map<string, string>) {
   if (!row?.id) return null;
-  const url = row.image_id ? imageUrlMap.get(row.image_id) || row.url || row.image_url : row.url || row.image_url;
+  const url = row.url || row.image_url || (row.image_id ? imageUrlMap.get(row.image_id) || '' : '');
   if (!url) return null;
   const hidden = row.hidden !== undefined && row.hidden !== null ? row.hidden === 1 : row.is_active === 0;
   const position = Number.isFinite(row.sort_order) ? (row.sort_order as number) : row.position ?? 0;

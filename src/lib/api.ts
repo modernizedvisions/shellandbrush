@@ -159,6 +159,7 @@ export async function adminDeleteCategory(id: string): Promise<void> {
 }
 
 export type AdminUploadOptions = {
+  scope?: 'products' | 'gallery' | 'home' | 'categories';
   entityType?: string;
   entityId?: string;
   kind?: string;
@@ -171,12 +172,7 @@ export async function adminUploadImage(
   options: AdminUploadOptions = {}
 ): Promise<{
   id: string;
-  publicUrl: string;
-  storageKey: string;
-  contentType?: string | null;
-  sizeBytes?: number | null;
-  originalFilename?: string | null;
-  uploadRequestId?: string | null;
+  url: string;
 }> {
   const form = new FormData();
   form.append('file', file, file.name || 'upload');
@@ -187,7 +183,9 @@ export async function adminUploadImage(
   if (options.sortOrder !== undefined) form.append('sortOrder', String(options.sortOrder));
 
   const rid = crypto.randomUUID();
-  const url = `/api/admin/images/upload?rid=${encodeURIComponent(rid)}`;
+  const query = new URLSearchParams({ rid });
+  if (options.scope) query.set('scope', options.scope);
+  const url = `/api/admin/images/upload?${query.toString()}`;
   const method = 'POST';
 
   console.debug('[admin image upload] request', {
@@ -225,17 +223,22 @@ export async function adminUploadImage(
   } catch (err) {
     throw new Error(`Image upload failed rid=${rid} status=${response.status} body=invalid-json`);
   }
-  if (!data?.image?.id || !data?.image?.publicUrl || !data?.image?.storageKey) {
+  const normalizedId =
+    (typeof data?.id === 'string' && data.id) ||
+    (typeof data?.image?.id === 'string' && data.image.id) ||
+    (typeof data?.image?.storageKey === 'string' && data.image.storageKey) ||
+    '';
+  const normalizedUrl =
+    (typeof data?.url === 'string' && data.url) ||
+    (typeof data?.image?.publicUrl === 'string' && data.image.publicUrl) ||
+    '';
+
+  if (!normalizedId || !normalizedUrl) {
     throw new Error(`Image upload failed rid=${rid} status=${response.status} body=missing-fields`);
   }
   return {
-    id: data.image.id,
-    publicUrl: data.image.publicUrl,
-    storageKey: data.image.storageKey,
-    contentType: data.image.contentType ?? null,
-    sizeBytes: data.image.sizeBytes ?? null,
-    originalFilename: data.image.originalFilename ?? null,
-    uploadRequestId: data.image.uploadRequestId ?? null,
+    id: normalizedId,
+    url: normalizedUrl,
   };
 }
 

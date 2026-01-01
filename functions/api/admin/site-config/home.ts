@@ -1,4 +1,5 @@
 import { requireAdmin } from '../../_lib/adminAuth';
+import { isBlockedImageUrl } from '../../_lib/imageUrls';
 
 type D1PreparedStatement = {
   run(): Promise<{ success: boolean; error?: string }>;
@@ -19,6 +20,7 @@ type Env = {
 type HeroImageConfig = {
   id?: string;
   imageId?: string | null;
+  imageUrl?: string;
   alt?: string;
 };
 
@@ -48,6 +50,8 @@ const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<stri
   return new Map((results || []).map((row) => [row.id, row.public_url]));
 };
 
+const hasBlockedUrls = (urls: Array<string | null | undefined>) => urls.some((url) => isBlockedImageUrl(url));
+
 export async function onRequestPut(context: { request: Request; env: Env }): Promise<Response> {
   const auth = requireAdmin(context.request, context.env);
   if (auth) return auth;
@@ -66,15 +70,41 @@ export async function onRequestPut(context: { request: Request; env: Env }): Pro
   const heroImages = Array.isArray(incoming.heroImages) ? incoming.heroImages : [];
   const customOrdersImages = Array.isArray(incoming.customOrdersImages) ? incoming.customOrdersImages : [];
 
+  if (
+    hasBlockedUrls([
+      ...heroImages.map((img) => img?.imageUrl),
+      ...customOrdersImages.map((img) => img?.imageUrl),
+    ])
+  ) {
+    return json({ error: 'Images must be uploaded first; only URLs allowed.' }, 413);
+  }
+
+  const imageIds = [
+    ...heroImages.map((img) => img?.imageId || ''),
+    ...customOrdersImages.map((img) => img?.imageId || ''),
+    incoming.heroImageId || '',
+  ].filter(Boolean);
+  const imageUrlMap = await fetchImageUrlMap(db, imageIds);
+
   const sanitized: SiteConfig = {
     heroImages: heroImages
-      .filter((img) => typeof img?.imageId === 'string' && img.imageId)
+      .filter((img) => (typeof img?.imageId === 'string' && img.imageId) || !!img?.imageUrl)
       .slice(0, 3)
-      .map((img) => ({ id: img.id, imageId: img.imageId, alt: img.alt })),
+      .map((img) => ({
+        id: img.id,
+        imageId: img.imageId,
+        imageUrl: img.imageUrl || (img.imageId ? imageUrlMap.get(img.imageId) || '' : ''),
+        alt: img.alt,
+      })),
     customOrdersImages: customOrdersImages
-      .filter((img) => typeof img?.imageId === 'string' && img.imageId)
+      .filter((img) => (typeof img?.imageId === 'string' && img.imageId) || !!img?.imageUrl)
       .slice(0, 4)
-      .map((img) => ({ id: img.id, imageId: img.imageId, alt: img.alt })),
+      .map((img) => ({
+        id: img.id,
+        imageId: img.imageId,
+        imageUrl: img.imageUrl || (img.imageId ? imageUrlMap.get(img.imageId) || '' : ''),
+        alt: img.alt,
+      })),
     heroRotationEnabled: !!incoming.heroRotationEnabled,
     heroTitle: typeof incoming.heroTitle === 'string' ? incoming.heroTitle : undefined,
     heroSubtitle: typeof incoming.heroSubtitle === 'string' ? incoming.heroSubtitle : undefined,
@@ -94,17 +124,10 @@ export async function onRequestPut(context: { request: Request; env: Env }): Pro
 
   if (!result.success) return json({ error: 'failed_to_save' }, 500);
 
-  const imageIds = [
-    ...(sanitized.heroImages || []).map((img) => img.imageId || ''),
-    ...(sanitized.customOrdersImages || []).map((img) => img.imageId || ''),
-    sanitized.heroImageId || '',
-  ].filter(Boolean);
-  const imageUrlMap = await fetchImageUrlMap(db, imageIds);
-
   const hydrate = (images: HeroImageConfig[]) =>
     images.map((img) => ({
       ...img,
-      imageUrl: img.imageId ? imageUrlMap.get(img.imageId) || '' : '',
+      imageUrl: img.imageUrl || (img.imageId ? imageUrlMap.get(img.imageId) || '' : ''),
     }));
 
   return json({

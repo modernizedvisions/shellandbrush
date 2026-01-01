@@ -70,18 +70,34 @@ export async function onRequestGet(context: { env: { DB: D1Database }; request: 
 
     const products: Product[] = rows.map((row) => {
       const imageIdsRow = row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : [];
-      const primaryId = row.primary_image_id || imageIdsRow[0] || '';
-      const primaryFromIds = primaryId ? imageUrlMap.get(primaryId) || '' : '';
-      const extraFromIds = imageIdsRow
-        .map((id) => imageUrlMap.get(id))
-        .filter((url): url is string => !!url);
       const legacyExtras = row.image_urls_json ? safeParseJsonArray(row.image_urls_json) : [];
       const legacyPrimary = row.image_url || legacyExtras[0] || '';
-      const primaryImage = primaryFromIds || legacyPrimary || '';
-      const allExtras = primaryFromIds ? extraFromIds : legacyExtras;
-      const resolvedImageUrls = primaryImage
-        ? [primaryImage, ...allExtras.filter((url) => url !== primaryImage)]
-        : allExtras;
+
+      let primaryImage = legacyPrimary;
+      let resolvedImageUrls = legacyExtras;
+
+      if (!primaryImage) {
+        const primaryId = row.primary_image_id || imageIdsRow[0] || '';
+        const primaryFromIds = primaryId ? imageUrlMap.get(primaryId) || '' : '';
+        const extraFromIds = imageIdsRow
+          .map((id) => imageUrlMap.get(id))
+          .filter((url): url is string => !!url);
+        primaryImage = primaryFromIds || '';
+        resolvedImageUrls = primaryImage
+          ? [primaryImage, ...extraFromIds.filter((url) => url !== primaryImage)]
+          : extraFromIds;
+      } else if (!resolvedImageUrls.length && imageIdsRow.length) {
+        const extraFromIds = imageIdsRow
+          .map((id) => imageUrlMap.get(id))
+          .filter((url): url is string => !!url);
+        resolvedImageUrls = primaryImage
+          ? [primaryImage, ...extraFromIds.filter((url) => url !== primaryImage)]
+          : extraFromIds;
+      }
+
+      if (primaryImage) {
+        resolvedImageUrls = [primaryImage, ...resolvedImageUrls.filter((url) => url !== primaryImage)];
+      }
 
       return {
         id: row.id,

@@ -5,6 +5,15 @@ import { AdminSectionHeader } from './AdminSectionHeader';
 import { adminFetchCategories, adminUploadImage } from '../../lib/api';
 import { ShopCategoryCardsSection } from './ShopCategoryCardsSection';
 
+const isBlockedImageUrl = (value?: string) => {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.length > 2000) return true;
+  const lower = trimmed.toLowerCase();
+  return lower.startsWith('data:') || lower.startsWith('blob:') || lower.includes(';base64,');
+};
+
 export interface AdminHomeTabProps {
   heroImages: HeroCollageImage[];
   customOrdersImages: CustomOrdersImage[];
@@ -96,6 +105,7 @@ function HeroCollageAdmin({
 }: HeroCollageAdminProps) {
   const slots = [0, 1, 2];
   const hasUploads = images.some((img) => img?.uploading);
+  const hasBlocked = images.some((img) => isBlockedImageUrl(img?.imageUrl));
 
   const handleFileSelect = async (index: number, file: File) => {
     const previewUrl = URL.createObjectURL(file);
@@ -122,6 +132,7 @@ function HeroCollageAdmin({
 
     try {
       const result = await adminUploadImage(file, {
+        scope: 'home',
         entityType: 'home_hero',
         entityId: 'home',
         kind: 'hero',
@@ -131,7 +142,7 @@ function HeroCollageAdmin({
       URL.revokeObjectURL(previewUrl);
       onChange(
         buildNext({
-          imageUrl: result.publicUrl,
+          imageUrl: result.url,
           imageId: result.id,
           uploading: false,
           uploadError: undefined,
@@ -185,8 +196,14 @@ function HeroCollageAdmin({
         </div>
         <div className="flex justify-center sm:justify-end">
           <button
-            onClick={onSave}
-            disabled={saveState === 'saving' || hasUploads}
+            onClick={async () => {
+              if (hasBlocked) {
+                console.error('[admin home] blocked: invalid hero image URLs detected.');
+                return;
+              }
+              await onSave();
+            }}
+            disabled={saveState === 'saving' || hasUploads || hasBlocked}
             className="inline-flex items-center gap-2 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-60"
           >
             {saveState === 'saving' ? (
@@ -204,6 +221,7 @@ function HeroCollageAdmin({
             )}
           </button>
         </div>
+        {hasBlocked && <div className="text-xs text-red-600">Upload hero images before saving (no blob/data URLs).</div>}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -313,6 +331,7 @@ const normalizeCategoriesList = (items: Category[]): Category[] => {
 function CustomOrdersImagesAdmin({ images, onChange, onSave, saveState }: CustomOrdersImagesAdminProps) {
   const slots = [0, 1, 2, 3];
   const hasUploads = images.some((img) => img?.uploading);
+  const hasBlocked = images.some((img) => isBlockedImageUrl(img?.imageUrl));
 
   const handleFileSelect = async (index: number, file: File) => {
     const previewUrl = URL.createObjectURL(file);
@@ -327,6 +346,7 @@ function CustomOrdersImagesAdmin({ images, onChange, onSave, saveState }: Custom
 
     try {
       const result = await adminUploadImage(file, {
+        scope: 'home',
         entityType: 'home_hero',
         entityId: 'home',
         kind: 'custom_orders',
@@ -336,7 +356,7 @@ function CustomOrdersImagesAdmin({ images, onChange, onSave, saveState }: Custom
       const updated = [...next];
       updated[index] = {
         ...(updated[index] || {}),
-        imageUrl: result.publicUrl,
+        imageUrl: result.url,
         imageId: result.id,
         uploading: false,
         uploadError: undefined,
@@ -368,8 +388,14 @@ function CustomOrdersImagesAdmin({ images, onChange, onSave, saveState }: Custom
         />
         <div className="flex justify-center sm:justify-end">
           <button
-            onClick={onSave}
-            disabled={saveState === 'saving' || hasUploads}
+            onClick={async () => {
+              if (hasBlocked) {
+                console.error('[admin home] blocked: invalid custom orders image URLs detected.');
+                return;
+              }
+              await onSave();
+            }}
+            disabled={saveState === 'saving' || hasUploads || hasBlocked}
             className="inline-flex items-center gap-2 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-60"
           >
             {saveState === 'saving' ? (
@@ -387,6 +413,7 @@ function CustomOrdersImagesAdmin({ images, onChange, onSave, saveState }: Custom
             )}
           </button>
         </div>
+        {hasBlocked && <div className="text-xs text-red-600">Upload images before saving (no blob/data URLs).</div>}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

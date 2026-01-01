@@ -1,5 +1,6 @@
 import { defaultShopCategoryTiles } from '../../../src/lib/db/mockData';
 import { requireAdmin } from '../_lib/adminAuth';
+import { isBlockedImageUrl } from '../_lib/imageUrls';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -80,6 +81,8 @@ const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<stri
   return new Map((results || []).map((row) => [row.id, row.public_url]));
 };
 
+const hasBlockedUrls = (urls: Array<string | null | undefined>) => urls.some((url) => isBlockedImageUrl(url));
+
 export async function onRequest(context: {
   env: { DB: D1Database; ADMIN_PASSWORD?: string };
   request: Request;
@@ -149,6 +152,12 @@ async function handlePost(db: D1Database, request: Request): Promise<Response> {
     if (imageId) resolvedImageUrl = map.get(imageId) || resolvedImageUrl;
     if (heroImageId) resolvedHeroImageUrl = map.get(heroImageId) || resolvedHeroImageUrl;
   }
+  if (resolvedImageUrl && !resolvedHeroImageUrl) {
+    resolvedHeroImageUrl = resolvedImageUrl;
+  }
+  if (hasBlockedUrls([resolvedImageUrl, resolvedHeroImageUrl])) {
+    return json({ error: 'Images must be uploaded first; only URLs allowed.' }, 413);
+  }
 
   const result = await db
     .prepare(
@@ -198,13 +207,22 @@ async function handlePut(db: D1Database, request: Request): Promise<Response> {
   if (body.heroImageId !== undefined) addSet('hero_image_id = ?', body.heroImageId || null);
   if (body.showOnHomePage !== undefined) addSet('show_on_homepage = ?', body.showOnHomePage ? 1 : 0);
 
+  if (hasBlockedUrls([body.imageUrl, body.heroImageUrl])) {
+    return json({ error: 'Images must be uploaded first; only URLs allowed.' }, 413);
+  }
+
   if (!sets.length) return json({ error: 'No fields to update' }, 400);
 
   if (body.imageId || body.heroImageId) {
     const ids = [body.imageId || '', body.heroImageId || ''].filter(Boolean);
     const map = await fetchImageUrlMap(db, ids);
-    if (body.imageId) addSet('image_url = ?', map.get(body.imageId) || null);
-    if (body.heroImageId) addSet('hero_image_url = ?', map.get(body.heroImageId) || null);
+    const resolvedImageUrl = body.imageId ? map.get(body.imageId) || null : null;
+    const resolvedHeroImageUrl = body.heroImageId ? map.get(body.heroImageId) || null : null;
+    if (hasBlockedUrls([resolvedImageUrl, resolvedHeroImageUrl])) {
+      return json({ error: 'Images must be uploaded first; only URLs allowed.' }, 413);
+    }
+    if (body.imageId) addSet('image_url = ?', resolvedImageUrl);
+    if (body.heroImageId) addSet('hero_image_url = ?', resolvedHeroImageUrl);
   }
 
   const result = await db
@@ -214,6 +232,14 @@ async function handlePut(db: D1Database, request: Request): Promise<Response> {
 
   if (!result.success) return json({ error: 'Failed to update category' }, 500);
   if (result.meta?.changes === 0) return json({ error: 'Category not found' }, 404);
+
+  await db
+    .prepare(
+      `UPDATE categories SET hero_image_url = image_url
+       WHERE id = ? AND (hero_image_url IS NULL OR hero_image_url = '') AND image_url IS NOT NULL;`
+    )
+    .bind(id)
+    .run();
 
   const updated = await db
     .prepare(
@@ -275,10 +301,12 @@ async function handleDelete(db: D1Database, request: Request): Promise<Response>
 
 const mapRowToCategory = (row: CategoryRow, imageUrlMap: Map<string, string>): Category | null => {
   if (!row || !row.id || !row.name || !row.slug) return null;
-  const imageUrl = row.image_id ? imageUrlMap.get(row.image_id) || row.image_url || undefined : row.image_url || undefined;
-  const heroImageUrl = row.hero_image_id
-    ? imageUrlMap.get(row.hero_image_id) || row.hero_image_url || undefined
-    : row.hero_image_url || undefined;
+  const imageUrl =
+    row.image_url ||
+    (row.image_id ? imageUrlMap.get(row.image_id) || undefined : undefined);
+  const heroImageUrl =
+    row.hero_image_url ||
+    (row.hero_image_id ? imageUrlMap.get(row.hero_image_id) || undefined : undefined);
   return {
     id: row.id,
     name: row.name,
