@@ -110,6 +110,7 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
       | 'UPLOAD_FAILED'
       | 'MISSING_R2'
       | 'MISSING_PUBLIC_BASE_URL'
+      | 'BAD_PUBLIC_IMAGES_BASE_URL'
       | 'BAD_MULTIPART'
       | 'R2_PUT_FAILED'
       | 'D1_INSERT_FAILED';
@@ -178,10 +179,19 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
         status: 500,
       });
     }
-    if (!env.PUBLIC_IMAGES_BASE_URL) {
+    const rawBase = env.PUBLIC_IMAGES_BASE_URL ?? '';
+    const trimmedBase = rawBase.trim();
+    if (!trimmedBase) {
       return respondError({
         code: 'MISSING_PUBLIC_BASE_URL',
         message: 'Missing PUBLIC_IMAGES_BASE_URL.',
+        status: 500,
+      });
+    }
+    if (!/^https:\/\//i.test(trimmedBase)) {
+      return respondError({
+        code: 'BAD_PUBLIC_IMAGES_BASE_URL',
+        message: 'PUBLIC_IMAGES_BASE_URL must be an https URL like https://shellandbrush.pages.dev/images',
         status: 500,
       });
     }
@@ -278,10 +288,7 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
       });
     }
 
-    let baseUrl = env.PUBLIC_IMAGES_BASE_URL.replace(/\/+$/, '');
-    if (request.url.startsWith('https://') && baseUrl.startsWith('http://')) {
-      baseUrl = `https://${baseUrl.slice('http://'.length)}`;
-    }
+    const baseUrl = trimmedBase.replace(/\/+$/, '');
     const publicUrl = `${baseUrl}/${storageKey}`;
     const uploadRequestId = rid;
 

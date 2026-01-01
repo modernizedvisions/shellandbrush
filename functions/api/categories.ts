@@ -1,4 +1,5 @@
 import { defaultShopCategoryTiles } from '../../src/lib/db/mockData';
+import { normalizePublicImagesBaseUrl, resolvePublicImageUrl } from './_lib/imageUrls';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -66,18 +67,27 @@ const REQUIRED_CATEGORY_COLUMNS: Record<string, string> = {
   image_id: 'image_id TEXT',
 };
 
-const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
+const fetchImageUrlMap = async (
+  db: D1Database,
+  ids: string[],
+  baseUrl: string
+): Promise<Map<string, string>> => {
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return new Map();
   const placeholders = unique.map(() => '?').join(', ');
   const { results } = await db
-    .prepare(`SELECT id, public_url FROM images WHERE id IN (${placeholders});`)
+    .prepare(`SELECT id, public_url, storage_key FROM images WHERE id IN (${placeholders});`)
     .bind(...unique)
-    .all<{ id: string; public_url: string }>();
-  return new Map((results || []).map((row) => [row.id, row.public_url]));
+    .all<{ id: string; public_url: string | null; storage_key: string | null }>();
+  return new Map(
+    (results || []).map((row) => [
+      row.id,
+      resolvePublicImageUrl(row.public_url, row.storage_key, baseUrl),
+    ])
+  );
 };
 
-export async function onRequestGet(context: { env: { DB: D1Database } }): Promise<Response> {
+export async function onRequestGet(context: { env: { DB: D1Database; PUBLIC_IMAGES_BASE_URL?: string } }): Promise<Response> {
   try {
     await ensureCategorySchema(context.env.DB);
     await seedDefaultCategories(context.env.DB);
@@ -91,7 +101,8 @@ export async function onRequestGet(context: { env: { DB: D1Database } }): Promis
 
     const rows = results || [];
     const imageIds = rows.flatMap((row) => [row.image_id || '', row.hero_image_id || '']).filter(Boolean);
-    const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds);
+    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+    const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds, baseUrl);
     const categories = orderCategories(
       rows.map((row) => mapRowToCategory(row, imageUrlMap)).filter((c): c is Category => Boolean(c))
     );

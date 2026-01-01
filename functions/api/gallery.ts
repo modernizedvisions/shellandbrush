@@ -1,4 +1,4 @@
-import { isBlockedImageUrl } from './_lib/imageUrls';
+import { isBlockedImageUrl, normalizePublicImagesBaseUrl, resolvePublicImageUrl } from './_lib/imageUrls';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -39,18 +39,30 @@ const createGalleryTable = `
   );
 `;
 
-const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
+const fetchImageUrlMap = async (
+  db: D1Database,
+  ids: string[],
+  baseUrl: string
+): Promise<Map<string, string>> => {
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return new Map();
   const placeholders = unique.map(() => '?').join(', ');
   const { results } = await db
-    .prepare(`SELECT id, public_url FROM images WHERE id IN (${placeholders});`)
+    .prepare(`SELECT id, public_url, storage_key FROM images WHERE id IN (${placeholders});`)
     .bind(...unique)
-    .all<{ id: string; public_url: string }>();
-  return new Map((results || []).map((row) => [row.id, row.public_url]));
+    .all<{ id: string; public_url: string | null; storage_key: string | null }>();
+  return new Map(
+    (results || []).map((row) => [
+      row.id,
+      resolvePublicImageUrl(row.public_url, row.storage_key, baseUrl),
+    ])
+  );
 };
 
-export async function onRequestGet(context: { env: { DB?: D1Database }; request: Request }): Promise<Response> {
+export async function onRequestGet(context: {
+  env: { DB?: D1Database; PUBLIC_IMAGES_BASE_URL?: string };
+  request: Request;
+}): Promise<Response> {
   try {
     const db = context.env.DB;
     if (!db) {
@@ -69,7 +81,8 @@ export async function onRequestGet(context: { env: { DB?: D1Database }; request:
 
     const rows = results || [];
     const imageIds = rows.map((row) => row.image_id || '').filter(Boolean);
-    const imageUrlMap = await fetchImageUrlMap(db, imageIds);
+    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+    const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
     const images = rows.map((row) => mapRowToImage(row, schemaInfo, imageUrlMap)).filter(Boolean);
     console.log('[api/gallery][get] fetched', { count: images.length });
 
@@ -83,7 +96,10 @@ export async function onRequestGet(context: { env: { DB?: D1Database }; request:
   }
 }
 
-export async function onRequestPut(context: { env: { DB?: D1Database }; request: Request }): Promise<Response> {
+export async function onRequestPut(context: {
+  env: { DB?: D1Database; PUBLIC_IMAGES_BASE_URL?: string };
+  request: Request;
+}): Promise<Response> {
   try {
     const db = context.env.DB;
     const contentType = context.request.headers.get('content-type');
@@ -146,7 +162,8 @@ export async function onRequestPut(context: { env: { DB?: D1Database }; request:
     }
 
     const imageIds = normalized.map((img) => img.imageId || '').filter(Boolean);
-    const imageUrlMap = await fetchImageUrlMap(db, imageIds);
+    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+    const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
     const blocked = normalized.find((img) => {
       const resolvedUrl = img.imageId ? imageUrlMap.get(img.imageId) || img.url : img.url;
       return isBlockedImageUrl(resolvedUrl);
@@ -229,7 +246,7 @@ export async function onRequestPut(context: { env: { DB?: D1Database }; request:
 
     const refreshedRows = refreshed.results || [];
     const refreshedIds = refreshedRows.map((row) => row.image_id || '').filter(Boolean);
-    const refreshedUrlMap = await fetchImageUrlMap(db, refreshedIds);
+    const refreshedUrlMap = await fetchImageUrlMap(db, refreshedIds, baseUrl);
     const savedImages = refreshedRows
       .map((row) => mapRowToImage(row, schemaInfo, refreshedUrlMap))
       .filter(Boolean);

@@ -1,5 +1,5 @@
 import { requireAdmin } from '../../_lib/adminAuth';
-import { isBlockedImageUrl } from '../../_lib/imageUrls';
+import { isBlockedImageUrl, normalizePublicImagesBaseUrl, resolvePublicImageUrl } from '../../_lib/imageUrls';
 
 type D1PreparedStatement = {
   run(): Promise<{ success: boolean; error?: string }>;
@@ -15,6 +15,7 @@ type D1Database = {
 type Env = {
   DB?: D1Database;
   ADMIN_PASSWORD?: string;
+  PUBLIC_IMAGES_BASE_URL?: string;
 };
 
 type HeroImageConfig = {
@@ -47,15 +48,24 @@ const createSiteConfigTable = `
   );
 `;
 
-const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
+const fetchImageUrlMap = async (
+  db: D1Database,
+  ids: string[],
+  baseUrl: string
+): Promise<Map<string, string>> => {
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return new Map();
   const placeholders = unique.map(() => '?').join(', ');
   const { results } = await db
-    .prepare(`SELECT id, public_url FROM images WHERE id IN (${placeholders});`)
+    .prepare(`SELECT id, public_url, storage_key FROM images WHERE id IN (${placeholders});`)
     .bind(...unique)
-    .all<{ id: string; public_url: string }>();
-  return new Map((results || []).map((row) => [row.id, row.public_url]));
+    .all<{ id: string; public_url: string | null; storage_key: string | null }>();
+  return new Map(
+    (results || []).map((row) => [
+      row.id,
+      resolvePublicImageUrl(row.public_url, row.storage_key, baseUrl),
+    ])
+  );
 };
 
 const hasBlockedUrls = (urls: Array<string | null | undefined>) => urls.some((url) => isBlockedImageUrl(url));
@@ -93,7 +103,8 @@ export async function onRequestPut(context: { request: Request; env: Env }): Pro
     ...customOrdersImages.map((img) => img?.imageId || ''),
     incoming.heroImageId || '',
   ].filter(Boolean);
-  const imageUrlMap = await fetchImageUrlMap(db, imageIds);
+  const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+  const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
 
   const sanitized: SiteConfig = {
     heroImages: heroImages

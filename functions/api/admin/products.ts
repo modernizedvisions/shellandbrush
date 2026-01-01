@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import type { Product } from '../../../src/lib/types';
 import { requireAdmin } from '../_lib/adminAuth';
-import { isBlockedImageUrl } from '../_lib/imageUrls';
+import { isBlockedImageUrl, normalizePublicImagesBaseUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -193,15 +193,24 @@ const createProductsTable = `
   );
 `;
 
-const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
+const fetchImageUrlMap = async (
+  db: D1Database,
+  ids: string[],
+  baseUrl: string
+): Promise<Map<string, string>> => {
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return new Map();
   const placeholders = unique.map(() => '?').join(', ');
   const { results } = await db
-    .prepare(`SELECT id, public_url FROM images WHERE id IN (${placeholders});`)
+    .prepare(`SELECT id, public_url, storage_key FROM images WHERE id IN (${placeholders});`)
     .bind(...unique)
-    .all<{ id: string; public_url: string }>();
-  return new Map((results || []).map((row) => [row.id, row.public_url]));
+    .all<{ id: string; public_url: string | null; storage_key: string | null }>();
+  return new Map(
+    (results || []).map((row) => [
+      row.id,
+      resolvePublicImageUrl(row.public_url, row.storage_key, baseUrl),
+    ])
+  );
 };
 
 const resolveCategoryFromId = async (db: D1Database, categoryId?: string | null): Promise<string> => {
@@ -219,11 +228,12 @@ const resolveCategoryFromId = async (db: D1Database, categoryId?: string | null)
 
 const resolveImageUrlsFromIds = async (
   db: D1Database,
+  baseUrl: string,
   primaryImageId?: string | null,
   imageIds?: string[] | null
 ) => {
   const ids = [primaryImageId || '', ...(imageIds || [])].filter(Boolean);
-  const urlMap = await fetchImageUrlMap(db, ids);
+  const urlMap = await fetchImageUrlMap(db, ids, baseUrl);
   const primaryUrl = primaryImageId ? urlMap.get(primaryImageId) || '' : '';
   const extraUrls = (imageIds || []).map((id) => urlMap.get(id)).filter((url): url is string => !!url);
   return { primaryUrl, extraUrls, urlMap };
@@ -255,7 +265,10 @@ async function ensureProductSchema(db: D1Database) {
   }
 }
 
-export async function onRequestGet(context: { env: { DB: D1Database; ADMIN_PASSWORD?: string }; request: Request }): Promise<Response> {
+export async function onRequestGet(context: {
+  env: { DB: D1Database; ADMIN_PASSWORD?: string; PUBLIC_IMAGES_BASE_URL?: string };
+  request: Request;
+}): Promise<Response> {
   const auth = requireAdmin(context.request, context.env);
   if (auth) return auth;
   try {
@@ -277,7 +290,8 @@ export async function onRequestGet(context: { env: { DB: D1Database; ADMIN_PASSW
       const primary = row.primary_image_id ? [row.primary_image_id] : [];
       return [...primary, ...extra];
     });
-    const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds);
+    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+    const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds, baseUrl);
     const products: Product[] = rows.map((row) => mapRowToProduct(row, imageUrlMap));
 
     return new Response(JSON.stringify({ products }), {
@@ -294,7 +308,7 @@ export async function onRequestGet(context: { env: { DB: D1Database; ADMIN_PASSW
 }
 
 export async function onRequestPost(context: {
-  env: { DB: D1Database; STRIPE_SECRET_KEY?: string; ADMIN_PASSWORD?: string };
+  env: { DB: D1Database; STRIPE_SECRET_KEY?: string; ADMIN_PASSWORD?: string; PUBLIC_IMAGES_BASE_URL?: string };
   request: Request;
 }): Promise<Response> {
   const auth = requireAdmin(context.request, context.env);
@@ -367,9 +381,10 @@ export async function onRequestPost(context: {
     let resolvedExtraUrls = imageUrls;
     let resolvedPrimaryImageId = primaryImageId;
     let resolvedImageIds = imageIds;
+    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
 
     if (primaryImageId || imageIds.length) {
-      const resolved = await resolveImageUrlsFromIds(context.env.DB, primaryImageId, imageIds);
+      const resolved = await resolveImageUrlsFromIds(context.env.DB, baseUrl, primaryImageId, imageIds);
       if (primaryImageId && !resolved.primaryUrl && !body.imageUrl) {
         return new Response(JSON.stringify({ error: 'Primary image id not found' }), {
           status: 400,
@@ -461,7 +476,7 @@ export async function onRequestPost(context: {
         inserted?.primary_image_id || '',
         ...(inserted?.image_ids_json ? safeParseJsonArray(inserted.image_ids_json) : []),
       ].filter(Boolean);
-      const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIdSet);
+      const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIdSet, baseUrl);
       const product = inserted ? mapRowToProduct(inserted, imageUrlMap) : null;
       return new Response(JSON.stringify({ product, error: 'Stripe is not configured' }), {
         status: 201,
@@ -510,7 +525,7 @@ export async function onRequestPost(context: {
       inserted?.primary_image_id || '',
       ...(inserted?.image_ids_json ? safeParseJsonArray(inserted.image_ids_json) : []),
     ].filter(Boolean);
-    const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIdSet);
+    const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIdSet, baseUrl);
     const product = inserted ? mapRowToProduct(inserted, imageUrlMap) : null;
 
     return new Response(JSON.stringify({ product }), {

@@ -1,3 +1,5 @@
+import { normalizePublicImagesBaseUrl, resolvePublicImageUrl } from './_lib/imageUrls';
+
 type D1PreparedStatement = {
   first<T>(): Promise<T | null>;
   bind(...values: unknown[]): D1PreparedStatement;
@@ -10,6 +12,7 @@ type D1Database = {
 
 type Env = {
   DB?: D1Database;
+  PUBLIC_IMAGES_BASE_URL?: string;
 };
 
 type HeroImageConfig = {
@@ -47,15 +50,24 @@ const createSiteConfigTable = `
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
   );
 `;
-const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
+const fetchImageUrlMap = async (
+  db: D1Database,
+  ids: string[],
+  baseUrl: string
+): Promise<Map<string, string>> => {
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return new Map();
   const placeholders = unique.map(() => '?').join(', ');
   const { results } = await db
-    .prepare(`SELECT id, public_url FROM images WHERE id IN (${placeholders});`)
+    .prepare(`SELECT id, public_url, storage_key FROM images WHERE id IN (${placeholders});`)
     .bind(...unique)
-    .all<{ id: string; public_url: string }>();
-  return new Map((results || []).map((row) => [row.id, row.public_url]));
+    .all<{ id: string; public_url: string | null; storage_key: string | null }>();
+  return new Map(
+    (results || []).map((row) => [
+      row.id,
+      resolvePublicImageUrl(row.public_url, row.storage_key, baseUrl),
+    ])
+  );
 };
 
 export async function onRequestGet(context: { env: Env }): Promise<Response> {
@@ -92,7 +104,8 @@ export async function onRequestGet(context: { env: Env }): Promise<Response> {
     ...customOrdersImages.map((img) => img.imageId || ''),
     config.heroImageId || '',
   ].filter(Boolean);
-  const imageUrlMap = await fetchImageUrlMap(db, imageIds);
+  const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+  const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
 
   const hydrate = (images: HeroImageConfig[]) =>
     images.map((img) => ({

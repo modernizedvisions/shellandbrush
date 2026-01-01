@@ -1,6 +1,6 @@
 import { defaultShopCategoryTiles } from '../../../src/lib/db/mockData';
 import { requireAdmin } from '../_lib/adminAuth';
-import { isBlockedImageUrl } from '../_lib/imageUrls';
+import { isBlockedImageUrl, normalizePublicImagesBaseUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -70,26 +70,36 @@ const REQUIRED_CATEGORY_COLUMNS: Record<string, string> = {
   image_id: 'image_id TEXT',
 };
 
-const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
+const fetchImageUrlMap = async (
+  db: D1Database,
+  ids: string[],
+  baseUrl: string
+): Promise<Map<string, string>> => {
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return new Map();
   const placeholders = unique.map(() => '?').join(', ');
   const { results } = await db
-    .prepare(`SELECT id, public_url FROM images WHERE id IN (${placeholders});`)
+    .prepare(`SELECT id, public_url, storage_key FROM images WHERE id IN (${placeholders});`)
     .bind(...unique)
-    .all<{ id: string; public_url: string }>();
-  return new Map((results || []).map((row) => [row.id, row.public_url]));
+    .all<{ id: string; public_url: string | null; storage_key: string | null }>();
+  return new Map(
+    (results || []).map((row) => [
+      row.id,
+      resolvePublicImageUrl(row.public_url, row.storage_key, baseUrl),
+    ])
+  );
 };
 
 const hasBlockedUrls = (urls: Array<string | null | undefined>) => urls.some((url) => isBlockedImageUrl(url));
 
 export async function onRequest(context: {
-  env: { DB: D1Database; ADMIN_PASSWORD?: string };
+  env: { DB: D1Database; ADMIN_PASSWORD?: string; PUBLIC_IMAGES_BASE_URL?: string };
   request: Request;
 }): Promise<Response> {
   const auth = requireAdmin(context.request, context.env);
   if (auth) return auth;
   const method = context.request.method.toUpperCase();
+  const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
 
   try {
     await ensureCategorySchema(context.env.DB);
@@ -97,13 +107,13 @@ export async function onRequest(context: {
     await ensureOtherItemsCategory(context.env.DB);
 
     if (method === 'GET') {
-      return handleGet(context.env.DB);
+      return handleGet(context.env.DB, baseUrl);
     }
     if (method === 'POST') {
-      return handlePost(context.env.DB, context.request);
+      return handlePost(context.env.DB, context.request, baseUrl);
     }
     if (method === 'PUT') {
-      return handlePut(context.env.DB, context.request);
+      return handlePut(context.env.DB, context.request, baseUrl);
     }
     if (method === 'DELETE') {
       return handleDelete(context.env.DB, context.request);
@@ -116,7 +126,7 @@ export async function onRequest(context: {
   }
 }
 
-async function handleGet(db: D1Database): Promise<Response> {
+async function handleGet(db: D1Database, baseUrl: string): Promise<Response> {
   const { results } = await db
     .prepare(
       `SELECT id, name, slug, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories`
@@ -124,14 +134,14 @@ async function handleGet(db: D1Database): Promise<Response> {
     .all<CategoryRow>();
   const rows = results || [];
   const imageIds = rows.flatMap((row) => [row.image_id || '', row.hero_image_id || '']).filter(Boolean);
-  const imageUrlMap = await fetchImageUrlMap(db, imageIds);
+  const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
   const categories = orderCategories(
     rows.map((row) => mapRowToCategory(row, imageUrlMap)).filter((c): c is Category => Boolean(c))
   );
   return json({ categories });
 }
 
-async function handlePost(db: D1Database, request: Request): Promise<Response> {
+async function handlePost(db: D1Database, request: Request, baseUrl: string): Promise<Response> {
   const body = (await request.json().catch(() => null)) as Partial<Category> | null;
   const name = (body?.name || '').trim();
   if (!name) return json({ error: 'name is required' }, 400);
@@ -148,7 +158,7 @@ async function handlePost(db: D1Database, request: Request): Promise<Response> {
   let resolvedHeroImageUrl = heroImageUrl;
   if (imageId || heroImageId) {
     const ids = [imageId || '', heroImageId || ''].filter(Boolean);
-    const map = await fetchImageUrlMap(db, ids);
+    const map = await fetchImageUrlMap(db, ids, baseUrl);
     if (imageId) resolvedImageUrl = map.get(imageId) || resolvedImageUrl;
     if (heroImageId) resolvedHeroImageUrl = map.get(heroImageId) || resolvedHeroImageUrl;
   }
@@ -176,11 +186,15 @@ async function handlePost(db: D1Database, request: Request): Promise<Response> {
     .bind(id)
     .first<CategoryRow>();
 
-  const imageUrlMap = await fetchImageUrlMap(db, [created?.image_id || '', created?.hero_image_id || ''].filter(Boolean));
+  const imageUrlMap = await fetchImageUrlMap(
+    db,
+    [created?.image_id || '', created?.hero_image_id || ''].filter(Boolean),
+    baseUrl
+  );
   return json({ category: mapRowToCategory(created as CategoryRow, imageUrlMap) }, 201);
 }
 
-async function handlePut(db: D1Database, request: Request): Promise<Response> {
+async function handlePut(db: D1Database, request: Request, baseUrl: string): Promise<Response> {
   const url = new URL(request.url);
   const id = url.searchParams.get('id');
   if (!id) return json({ error: 'id is required' }, 400);
@@ -215,7 +229,7 @@ async function handlePut(db: D1Database, request: Request): Promise<Response> {
 
   if (body.imageId || body.heroImageId) {
     const ids = [body.imageId || '', body.heroImageId || ''].filter(Boolean);
-    const map = await fetchImageUrlMap(db, ids);
+    const map = await fetchImageUrlMap(db, ids, baseUrl);
     const resolvedImageUrl = body.imageId ? map.get(body.imageId) || null : null;
     const resolvedHeroImageUrl = body.heroImageId ? map.get(body.heroImageId) || null : null;
     if (hasBlockedUrls([resolvedImageUrl, resolvedHeroImageUrl])) {
@@ -248,7 +262,11 @@ async function handlePut(db: D1Database, request: Request): Promise<Response> {
     .bind(id)
     .first<CategoryRow>();
 
-  const imageUrlMap = await fetchImageUrlMap(db, [updated?.image_id || '', updated?.hero_image_id || ''].filter(Boolean));
+  const imageUrlMap = await fetchImageUrlMap(
+    db,
+    [updated?.image_id || '', updated?.hero_image_id || ''].filter(Boolean),
+    baseUrl
+  );
   return json({ category: mapRowToCategory(updated as CategoryRow, imageUrlMap) });
 }
 

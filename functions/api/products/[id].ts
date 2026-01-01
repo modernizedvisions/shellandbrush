@@ -1,4 +1,5 @@
 import type { Product } from '../../../src/lib/types';
+import { normalizePublicImagesBaseUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
 
 type D1PreparedStatement = {
   run(): Promise<{ success: boolean; error?: string }>;
@@ -94,7 +95,7 @@ const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>): Pro
 };
 
 export async function onRequestGet(context: {
-  env: { DB: D1Database };
+  env: { DB: D1Database; PUBLIC_IMAGES_BASE_URL?: string };
   params: Record<string, string>;
 }): Promise<Response> {
   const idOrSlug = context.params?.id;
@@ -132,7 +133,8 @@ export async function onRequestGet(context: {
       row.primary_image_id || '',
       ...(row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : []),
     ].filter(Boolean);
-    const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIdSet);
+    const baseUrl = normalizePublicImagesBaseUrl(context.env.PUBLIC_IMAGES_BASE_URL);
+    const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIdSet, baseUrl);
     const product = mapRowToProduct(row, imageUrlMap);
     return new Response(JSON.stringify({ product }), {
       status: 200,
@@ -182,15 +184,24 @@ const createProductsTable = `
   );
 `;
 
-const fetchImageUrlMap = async (db: D1Database, ids: string[]): Promise<Map<string, string>> => {
+const fetchImageUrlMap = async (
+  db: D1Database,
+  ids: string[],
+  baseUrl: string
+): Promise<Map<string, string>> => {
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return new Map();
   const placeholders = unique.map(() => '?').join(', ');
   const { results } = await db
-    .prepare(`SELECT id, public_url FROM images WHERE id IN (${placeholders});`)
+    .prepare(`SELECT id, public_url, storage_key FROM images WHERE id IN (${placeholders});`)
     .bind(...unique)
-    .all<{ id: string; public_url: string }>();
-  return new Map((results || []).map((row) => [row.id, row.public_url]));
+    .all<{ id: string; public_url: string | null; storage_key: string | null }>();
+  return new Map(
+    (results || []).map((row) => [
+      row.id,
+      resolvePublicImageUrl(row.public_url, row.storage_key, baseUrl),
+    ])
+  );
 };
 
 async function ensureProductSchema(db: D1Database) {
