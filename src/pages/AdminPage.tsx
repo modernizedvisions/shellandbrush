@@ -156,8 +156,8 @@ export function AdminPage() {
     setHomeSaveError('');
     try {
       const hasUploads =
-        (heroConfig.heroImages || []).some((img) => img?.uploading) ||
-    const hasErrors =
+        (heroConfig.heroImages || []).some((img) => img?.uploading);
+      const hasErrors =
         (heroConfig.heroImages || []).some((img) => img?.uploadError);
       if (hasUploads) {
         setHomeSaveState('idle');
