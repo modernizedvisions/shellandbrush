@@ -1,4 +1,4 @@
-import { getPublicImagesBaseUrl } from '../../_lib/imageBaseUrl';
+import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
 
 type Env = {
   PUBLIC_IMAGES_BASE_URL?: string;

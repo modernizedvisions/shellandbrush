@@ -1,6 +1,6 @@
 import { defaultShopCategoryTiles } from '../../src/lib/db/mockData';
 import { resolvePublicImageUrl } from './_lib/imageUrls';
-import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
+import { getPublicImagesBaseUrl } from './_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;

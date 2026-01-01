@@ -1,4 +1,4 @@
-import { resolvePublicImageUrl } from './_lib/imageUrls';
+import { resolvePublicImageUrl } from '../_lib/imageUrls';
 import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
