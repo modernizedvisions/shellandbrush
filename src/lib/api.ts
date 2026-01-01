@@ -213,15 +213,21 @@ export async function adminUploadImage(
   });
 
   if (!response.ok) {
-    const trimmed = responseText.length > 500 ? `${responseText.slice(0, 500)}...` : responseText;
-    throw new Error(`Image upload failed rid=${rid} status=${response.status} body=${trimmed}`);
+    const trimmed = responseText.length > 1000 ? `${responseText.slice(0, 1000)}...` : responseText;
+    console.error('[admin image upload] non-2xx', {
+      status: response.status,
+      url,
+      text: trimmed,
+    });
+    throw new Error(`Upload failed (${response.status}). See console for details. Server: ${trimmed}`);
   }
 
   let data: any = null;
   try {
     data = responseText ? JSON.parse(responseText) : null;
   } catch (err) {
-    throw new Error(`Image upload failed rid=${rid} status=${response.status} body=invalid-json`);
+    console.error('[admin image upload] invalid json', { status: response.status, url, text: responseText });
+    throw new Error(`Upload failed (${response.status}). See console for details. Server: invalid-json`);
   }
   const normalizedId =
     (typeof data?.id === 'string' && data.id) ||

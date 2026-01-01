@@ -22,10 +22,10 @@ const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const ALLOWED_SCOPES = new Set(['products', 'gallery', 'home', 'categories']);
 
-const corsHeaders = (request?: Request | null) => ({
-  'Access-Control-Allow-Origin': request?.headers.get('Origin') || '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Password, X-Upload-Request-Id',
+const corsHeaders = () => ({
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': '*',
 });
 
 const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -66,7 +66,7 @@ export async function onRequestOptions(context: { request: Request; env: Env }):
   return new Response(null, {
     status: 204,
     headers: {
-      ...corsHeaders(context.request),
+      ...corsHeaders(),
       'X-Upload-Fingerprint': BUILD_FINGERPRINT,
     },
   });
@@ -90,7 +90,7 @@ export async function onRequestGet(context: { request: Request; env: Env }): Pro
       path: request.url,
     }),
     405,
-    corsHeaders(request)
+    corsHeaders()
   );
 }
 
@@ -100,6 +100,66 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
   if (auth) return auth;
   const contentType = request.headers.get('content-type') || '';
   const contentLength = request.headers.get('content-length') || '';
+  const url = new URL(request.url);
+  const rid = url.searchParams.get('rid') || request.headers.get('x-upload-request-id') || null;
+  const scopeParam = (url.searchParams.get('scope') || '').toLowerCase();
+  const scope = scopeParam || 'products';
+
+  const respondError = (options: {
+    code:
+      | 'UPLOAD_FAILED'
+      | 'MISSING_R2'
+      | 'MISSING_PUBLIC_BASE_URL'
+      | 'BAD_MULTIPART'
+      | 'R2_PUT_FAILED'
+      | 'D1_INSERT_FAILED';
+    message: string;
+    status: number;
+    error?: unknown;
+  }) => {
+    const debug = {
+      hasBucketIMAGES: !!env.IMAGES_BUCKET,
+      hasBucketMV: !!env.MV_IMAGES,
+      hasPublicBaseUrl: !!env.PUBLIC_IMAGES_BASE_URL,
+      hasDB: !!env.DB,
+      publicBaseUrlPreview: env.PUBLIC_IMAGES_BASE_URL
+        ? env.PUBLIC_IMAGES_BASE_URL.replace(/\/+$/, '').slice(0, 80)
+        : null,
+      contentType,
+    };
+    const errorObj =
+      options.error instanceof Error
+        ? { message: options.error.message, stack: options.error.stack || null }
+        : options.error
+        ? { message: String(options.error), stack: null }
+        : { message: options.message, stack: null };
+
+    console.error('[images/upload] error', {
+      rid,
+      scope,
+      method: request.method,
+      env: {
+        hasBucketIMAGES: debug.hasBucketIMAGES,
+        hasBucketMV: debug.hasBucketMV,
+        hasPublicBaseUrl: debug.hasPublicBaseUrl,
+        hasDB: debug.hasDB,
+      },
+      error: errorObj,
+    });
+
+    return json(
+      withFingerprint({
+        ok: false,
+        code: options.code,
+        message: options.message,
+        rid,
+        scope,
+        debug,
+      }),
+      options.status,
+      corsHeaders()
+    );
+  };
 
   console.log('[images/upload] handler', {
     handler: 'POST',
@@ -112,49 +172,47 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
   try {
     const bucket = env.IMAGES_BUCKET ?? env.MV_IMAGES;
     if (!bucket) {
-      return json(
-        withFingerprint({
-          error: 'Missing images bucket binding',
-          details: 'Bind IMAGES_BUCKET or MV_IMAGES to R2.',
-        }),
-        500,
-        corsHeaders(request)
-      );
+      return respondError({
+        code: 'MISSING_R2',
+        message: 'Missing images bucket binding (IMAGES_BUCKET or MV_IMAGES).',
+        status: 500,
+      });
     }
     if (!env.PUBLIC_IMAGES_BASE_URL) {
-      return json(
-        withFingerprint({
-          error: 'Missing PUBLIC_IMAGES_BASE_URL',
-          details: 'Set PUBLIC_IMAGES_BASE_URL to the public R2 base URL.',
-        }),
-        500,
-        corsHeaders(request)
-      );
+      return respondError({
+        code: 'MISSING_PUBLIC_BASE_URL',
+        message: 'Missing PUBLIC_IMAGES_BASE_URL.',
+        status: 500,
+      });
     }
 
     if (!contentType.toLowerCase().includes('multipart/form-data')) {
-      return json(
-        withFingerprint({ error: 'Expected multipart/form-data upload' }),
-        400,
-        corsHeaders(request)
-      );
+      return respondError({
+        code: 'BAD_MULTIPART',
+        message: 'Expected multipart/form-data upload.',
+        status: 400,
+      });
     }
 
     const lengthValue = Number(contentLength);
     if (Number.isFinite(lengthValue) && lengthValue > MAX_UPLOAD_BYTES) {
-      return json(
-        withFingerprint({ error: 'Upload too large', details: 'Max 8MB allowed' }),
-        413,
-        corsHeaders(request)
-      );
+      return respondError({
+        code: 'UPLOAD_FAILED',
+        message: 'Upload too large. Max 8MB allowed.',
+        status: 413,
+      });
     }
 
     let form: FormData;
     try {
       form = await request.formData();
     } catch (err) {
-      console.error('[images/upload] Failed to parse form data', err);
-      return json(withFingerprint({ error: 'Invalid form data' }), 400, corsHeaders(request));
+      return respondError({
+        code: 'BAD_MULTIPART',
+        message: 'Invalid form data.',
+        status: 400,
+        error: err,
+      });
     }
 
     let file = form.get('file');
@@ -164,23 +222,27 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
     }
 
     if (!file || !(file instanceof File)) {
-      return json(withFingerprint({ error: 'Missing file field' }), 400, corsHeaders(request));
+      return respondError({
+        code: 'BAD_MULTIPART',
+        message: 'Missing file field.',
+        status: 400,
+      });
     }
 
     if (!ALLOWED_MIME_TYPES.has(file.type)) {
-      return json(
-        withFingerprint({ error: 'Unsupported image type', details: file.type || 'unknown' }),
-        415,
-        corsHeaders(request)
-      );
+      return respondError({
+        code: 'UPLOAD_FAILED',
+        message: `Unsupported image type: ${file.type || 'unknown'}`,
+        status: 415,
+      });
     }
 
     if (file.size > MAX_UPLOAD_BYTES) {
-      return json(
-        withFingerprint({ error: 'Upload too large', details: 'Max 8MB allowed' }),
-        413,
-        corsHeaders(request)
-      );
+      return respondError({
+        code: 'UPLOAD_FAILED',
+        message: 'Upload too large. Max 8MB allowed.',
+        status: 413,
+      });
     }
 
     console.log('[images/upload] file received', {
@@ -190,18 +252,12 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
     });
 
     const ext = extensionForMime(file.type);
-    const url = new URL(request.url);
-    const rawScope = (url.searchParams.get('scope') || '').toLowerCase();
-    const scope = rawScope || 'products';
     if (!ALLOWED_SCOPES.has(scope)) {
-      return json(
-        withFingerprint({
-          error: 'Invalid scope',
-          details: `scope must be one of: ${Array.from(ALLOWED_SCOPES).join(', ')}`,
-        }),
-        400,
-        corsHeaders(request)
-      );
+      return respondError({
+        code: 'UPLOAD_FAILED',
+        message: `Invalid scope. scope must be one of: ${Array.from(ALLOWED_SCOPES).join(', ')}`,
+        status: 400,
+      });
     }
     const now = new Date();
     const year = String(now.getUTCFullYear());
@@ -214,12 +270,12 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
         customMetadata: { originalName: file.name },
       });
     } catch (err) {
-      console.error('[images/upload] R2 upload failed', err);
-      return json(
-        withFingerprint({ error: 'Image upload failed', details: 'R2 upload error' }),
-        500,
-        corsHeaders(request)
-      );
+      return respondError({
+        code: 'R2_PUT_FAILED',
+        message: 'Image upload failed (R2 put).',
+        status: 500,
+        error: err,
+      });
     }
 
     let baseUrl = env.PUBLIC_IMAGES_BASE_URL.replace(/\/+$/, '');
@@ -227,10 +283,7 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
       baseUrl = `https://${baseUrl.slice('http://'.length)}`;
     }
     const publicUrl = `${baseUrl}/${storageKey}`;
-    const uploadRequestId =
-      url.searchParams.get('rid') ||
-      request.headers.get('x-upload-request-id') ||
-      null;
+    const uploadRequestId = rid;
 
     const entityType = (form.get('entityType') || new URL(request.url).searchParams.get('entityType')) as string | null;
     const entityId = (form.get('entityId') || new URL(request.url).searchParams.get('entityId')) as string | null;
@@ -270,12 +323,12 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
           )
           .run();
       } catch (err) {
-        console.error('[images/upload] D1 insert failed', err);
-        return json(
-          withFingerprint({ error: 'Image upload failed', details: 'DB insert error' }),
-          500,
-          corsHeaders(request)
-        );
+        return respondError({
+          code: 'D1_INSERT_FAILED',
+          message: 'Image upload failed (D1 insert).',
+          status: 500,
+          error: err,
+        });
       }
     }
 
@@ -287,10 +340,13 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
       responsePayload.dbImageId = dbImageId;
     }
 
-    return json(responsePayload, 200, corsHeaders(request));
+    return json(responsePayload, 200, corsHeaders());
   } catch (err) {
-    const details = err instanceof Error ? `${err.message}\n${err.stack || ''}` : String(err);
-    console.error('[images/upload] Unexpected error', details);
-    return json(withFingerprint({ error: 'Image upload failed', details }), 500, corsHeaders(request));
+    return respondError({
+      code: 'UPLOAD_FAILED',
+      message: 'Image upload failed.',
+      status: 500,
+      error: err,
+    });
   }
 }

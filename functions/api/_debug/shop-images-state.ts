@@ -23,14 +23,17 @@ export async function onRequestGet(context: { env: Env }): Promise<Response> {
     } catch (err) {
       return json(
         {
+          ok: false,
           error: 'bucket_list_failed',
-          envPresent: {
-            hasBucketBinding: !!bucket,
-            bucketBindingName,
+          env: {
+            hasBucketIMAGES: !!context.env.IMAGES_BUCKET,
+            hasBucketMV: !!context.env.MV_IMAGES,
+            bucketInUse: bucketBindingName,
             hasPublicBaseUrl: !!context.env.PUBLIC_IMAGES_BASE_URL,
           },
-          sampleKeys: [],
-          computedExampleUrl: null,
+          prefixTest: 'shell-and-brush/',
+          list: { keys: [], count: 0 },
+          exampleUrl: null,
         },
         500
       );
@@ -38,12 +41,15 @@ export async function onRequestGet(context: { env: Env }): Promise<Response> {
   }
 
   return json({
-    envPresent: {
-      hasBucketBinding: !!bucket,
-      bucketBindingName,
+    ok: true,
+    env: {
+      hasBucketIMAGES: !!context.env.IMAGES_BUCKET,
+      hasBucketMV: !!context.env.MV_IMAGES,
+      bucketInUse: bucketBindingName,
       hasPublicBaseUrl: !!context.env.PUBLIC_IMAGES_BASE_URL,
     },
-    sampleKeys,
-    computedExampleUrl: baseUrl && sampleKeys[0] ? `${baseUrl}/${sampleKeys[0]}` : null,
+    prefixTest: 'shell-and-brush/',
+    list: { keys: sampleKeys, count: sampleKeys.length },
+    exampleUrl: baseUrl && sampleKeys[0] ? `${baseUrl}/${sampleKeys[0]}` : null,
   });
 }
