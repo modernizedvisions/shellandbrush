@@ -51,3 +51,9 @@ curl.exe -i "https://shellandbrush.pages.dev/api/admin/images/upload?rid=debug&s
 
 wrangler d1 execute DB_NAME --remote --command "UPDATE images SET public_url='$base/'||storage_key WHERE storage_key IS NOT NULL AND storage_key!='' AND (public_url IS NULL OR public_url='' OR public_url NOT LIKE 'https://%');"
 ```
+
+## Email templates checklist
+1) Stripe test checkout -> confirm customer email renders (HTML + items + totals + addresses + CTA).
+2) Stripe test checkout -> confirm owner email renders (Admin button + optional Stripe button).
+3) Custom order payment link send -> confirm HTML renders and CTA works.
+4) Confirm item images load via https URLs in received emails.

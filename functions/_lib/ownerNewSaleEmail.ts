@@ -12,8 +12,9 @@ export type OwnerNewSaleParams = {
   statusLabel: string;
   customerName: string;
   customerEmail: string;
-  shippingAddressLine1?: string | null;
-  shippingAddressLine2?: string | null;
+  shippingAddress?: string | null;
+  billingAddress?: string | null;
+  paymentMethod?: string | null;
   items: OwnerNewSaleItem[];
   subtotal: string;
   shipping: string;
@@ -23,149 +24,182 @@ export type OwnerNewSaleParams = {
 };
 
 export function renderOwnerNewSaleEmailHtml(params: OwnerNewSaleParams): string {
-  const itemsHtml =
-    params.items && params.items.length
-      ? params.items
-          .map((item) => {
-            const safeName = escapeHtml(item.name);
-            const qty = item.qtyLabel ? `<div style="color:#6b7280; font-size:12px; margin-top:2px;">${escapeHtml(item.qtyLabel)}</div>` : '';
-            const image = item.imageUrl
-              ? `<td style="width:56px; padding-right:12px; vertical-align:top;">
-                  <img src="${escapeHtml(item.imageUrl || '')}" alt="${safeName}" width="48" height="48" style="display:block; border-radius:12px; object-fit:cover; border:1px solid #e5e7eb;">
-                </td>`
-              : '';
-            return `
-              <tr>
-                <td style="padding:10px 0; border-bottom:1px solid #ece8e2;">
-                  <table role="presentation" style="width:100%; border-collapse:collapse;">
-                    <tr>
-                      ${image}
-                      <td style="vertical-align:top;">
-                        <div style="font-family: Georgia, 'Times New Roman', serif; font-size:16px; color:#111827; font-weight:700; margin:0 0 2px;">${safeName}</div>
-                        ${qty}
-                      </td>
-                      <td style="vertical-align:top; text-align:right; font-family:'Helvetica Neue', Arial, sans-serif; font-size:14px; color:#111827; font-weight:700; white-space:nowrap;">${escapeHtml(item.lineTotal)}</td>
-                    </tr>
-                  </table>
-                </td>
-              </tr>
-            `;
-          })
-          .join('')
-      : `<tr><td style="padding:10px 0; color:#6b7280; font-size:14px;">No items found.</td></tr>`;
+  const brand = 'Shell & Brush';
+  const orderLabel = params.orderNumber || 'Order';
+  const baseFont = "'Playfair Display', Georgia, 'Times New Roman', serif";
+  const baseColor = '#111827';
+  const mutedColor = '#6b7280';
+  const borderColor = '#e5e7eb';
+  const primaryCtaLabel = 'View in Admin';
 
-  const shippingBlock =
-    params.shippingAddressLine1 || params.shippingAddressLine2
-      ? `
-      <div style="margin-top:8px;">
-        <div style="font-size:13px; color:#6b7280; margin-bottom:2px;">Shipping</div>
-        <div style="font-size:14px; color:#111827; line-height:1.5;">${escapeHtml(
-          [params.shippingAddressLine1, params.shippingAddressLine2].filter(Boolean).join('\n')
-        ).replace(/\n/g, '<br>')}</div>
-      </div>`
-      : `<div style="margin-top:8px; font-size:13px; color:#6b7280;">Shipping: Not provided</div>`;
+  const itemRows =
+    (params.items || [])
+      .map((item) => {
+        const qty = item.qtyLabel ? item.qtyLabel.trim() : '';
+        const imageMarkup = item.imageUrl
+          ? `<img src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)}" width="56" height="56" class="item-img" />`
+          : '<span class="item-placeholder"></span>';
+        return `
+      <tr class="item-row">
+        <td class="item-info">
+          <span class="item-media">${imageMarkup}</span>
+          <span class="item-text">
+            <span class="item-name">${escapeHtml(item.name)}${qty ? ` <span class="item-qty">${escapeHtml(qty)}</span>` : ''}</span>
+          </span>
+        </td>
+        <td class="item-price" align="right">${escapeHtml(item.lineTotal)}</td>
+      </tr>
+    `;
+      })
+      .join('') ||
+    `
+      <tr>
+        <td class="item-empty" colspan="2">No items found.</td>
+      </tr>
+    `;
+
+  const totalsRows = `
+      <tr>
+        <td class="totals-label" align="right">Subtotal</td>
+        <td class="totals-value" align="right">${escapeHtml(params.subtotal)}</td>
+      </tr>
+      <tr>
+        <td class="totals-label" align="right">Shipping</td>
+        <td class="totals-value" align="right">${escapeHtml(params.shipping)}</td>
+      </tr>
+      <tr class="total-row">
+        <td align="right">Total</td>
+        <td align="right">${escapeHtml(params.total)}</td>
+      </tr>
+    `;
+
+  const shippingLines = formatAddressLines(params.shippingAddress || '');
+  const billingLines = formatAddressLines(params.billingAddress || '');
+  const shippingBlock = shippingLines.length
+    ? renderAddressLines(shippingLines)
+    : 'Not provided';
+  const billingBlock = billingLines.length
+    ? renderAddressLines(billingLines)
+    : shippingLines.length
+    ? 'Same as shipping'
+    : 'Not provided';
+  const paymentMethod = params.paymentMethod || 'Not provided';
 
   const stripeButton = params.stripeUrl
-    ? `<a href="${escapeHtml(params.stripeUrl)}" style="display:inline-block; padding:11px 16px; background:#f3f4f6; color:#111827; text-decoration:none; border-radius:12px; font-weight:700; font-size:13px; margin-left:8px;">Open in Stripe ↗</a>`
+    ? `
+        <td width="12">&nbsp;</td>
+        <td bgcolor="${baseColor}" style="border-radius:9999px;">
+          <a href="${escapeHtml(params.stripeUrl)}" style="display:inline-block; padding:12px 20px; font-family:${baseFont}; font-size:14px; font-weight:600; color:#ffffff !important; text-decoration:none !important; border-radius:9999px;">
+            Open in Stripe
+          </a>
+        </td>`
     : '';
 
-  return `
-  <div style="background:#f9f7f3; padding:24px; font-family:'Helvetica Neue', Arial, sans-serif; color:#111827;">
-    <div style="max-width:720px; margin:0 auto; padding:0 12px;">
-      <div style="text-align:left; margin-bottom:16px;">
-        <div style="font-family: Georgia, 'Times New Roman', serif; font-size:22px; color:#111827; font-weight:700; margin:0;">NEW SALE — The Chesapeake Shell</div>
-        <div style="font-size:13px; color:#6b7280; margin-top:4px;">A new order has been paid.</div>
-      </div>
-
-      <div style="background:#ffffff; border-radius:16px; box-shadow:0 10px 30px rgba(15, 23, 42, 0.08); padding:20px; margin-bottom:12px;">
-        <table role="presentation" style="width:100%; border-collapse:collapse;">
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { margin:0; padding:0; background:#ffffff; }
+    table { border-collapse:collapse; }
+    img { border:0; line-height:100%; }
+    body, table, td, a, p, div, span { font-family:${baseFont}; }
+    .container { width:100%; background:#ffffff; }
+    .inner { width:600px; max-width:600px; }
+    .pad { padding:32px 16px; }
+    .section { padding-bottom:24px; }
+    .brand { font-size:20px; font-weight:600; color:${baseColor}; }
+    .order-label { font-size:12px; letter-spacing:0.12em; text-transform:uppercase; color:${mutedColor}; white-space:nowrap; }
+    .title { font-size:28px; font-weight:600; color:${baseColor}; margin:0 0 6px; }
+    .subtitle { font-size:14px; color:${mutedColor}; margin:0; }
+    .button { display:inline-block; padding:12px 20px; background:${baseColor}; color:#ffffff; text-decoration:none; border-radius:9999px; font-size:14px; font-weight:600; }
+    .subhead { font-size:14px; letter-spacing:0.12em; text-transform:uppercase; color:${mutedColor}; margin:0 0 8px; }
+    .item-row td { padding:12px 0; border-bottom:1px solid #ededed; vertical-align:top; }
+    .item-info { width:100%; }
+    .item-media { display:inline-block; width:56px; height:56px; vertical-align:top; }
+    .item-text { display:inline-block; vertical-align:top; margin-left:12px; max-width:420px; }
+    .item-img { width:56px; height:56px; border:1px solid ${borderColor}; object-fit:cover; display:block; }
+    .item-placeholder { width:56px; height:56px; border:1px solid ${borderColor}; background:#f3f4f6; display:block; }
+    .item-name { font-size:16px; font-weight:600; color:${baseColor}; }
+    .item-qty { font-size:13px; font-weight:500; color:${mutedColor}; }
+    .item-price { font-size:15px; font-weight:600; color:${baseColor}; white-space:nowrap; }
+    .item-empty { padding:12px 0; font-size:14px; color:${mutedColor}; }
+    .totals-label { padding:4px 0; font-size:14px; color:${mutedColor}; }
+    .totals-value { padding:4px 0; font-size:14px; color:${baseColor}; font-weight:600; }
+    .total-row td { padding-top:10px; font-size:16px; font-weight:700; color:${baseColor}; }
+    .info-title { font-size:11px; letter-spacing:0.12em; text-transform:uppercase; color:${mutedColor}; margin:0 0 6px; white-space:nowrap; }
+    .info { font-size:14px; color:${baseColor}; line-height:1.5; margin:0; }
+    .footer { padding-top:16px; font-size:12px; color:${mutedColor}; }
+  </style>
+</head>
+<body>
+  <table role="presentation" class="container" width="100%" cellspacing="0" cellpadding="0">
+    <tr>
+      <td align="center" class="pad">
+        <table role="presentation" class="inner" width="600" cellspacing="0" cellpadding="0">
           <tr>
-            <td style="font-size:13px; color:#6b7280; text-transform:uppercase; letter-spacing:0.08em; padding-bottom:6px;">Order</td>
-            <td style="text-align:right; font-size:13px; color:#6b7280; text-transform:uppercase; letter-spacing:0.08em; padding-bottom:6px;">${escapeHtml(
-              params.orderTypeLabel
-            )}</td>
+            <td class="section brand">${escapeHtml(brand)}</td>
+            <td class="section order-label" align="right" style="white-space:nowrap;">ORDER # ${escapeHtml(orderLabel)}</td>
           </tr>
           <tr>
-            <td style="padding:4px 0; font-size:15px; color:#111827; font-weight:700;">${escapeHtml(params.orderNumber)}</td>
-            <td style="padding:4px 0; text-align:right; font-size:14px; color:#16a34a; font-weight:700;">${escapeHtml(
-              params.statusLabel
-            )}</td>
+            <td class="section" colspan="2">
+              <p class="title">New Sale!</p>
+              <p class="subtitle">A new order has been placed on Shell & Brush.</p>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin-top:14px;">
+                <tr>
+                  <td bgcolor="${baseColor}" style="border-radius:9999px;">
+                    <a href="${escapeHtml(params.adminUrl)}" style="display:inline-block; padding:12px 20px; font-family:${baseFont}; font-size:14px; font-weight:600; color:#ffffff !important; text-decoration:none !important; border-radius:9999px;">
+                      ${escapeHtml(primaryCtaLabel)}
+                    </a>
+                  </td>
+                  ${stripeButton}
+                </tr>
+              </table>
+            </td>
           </tr>
           <tr>
-            <td style="padding:4px 0; font-size:13px; color:#6b7280;">Placed</td>
-            <td style="padding:4px 0; text-align:right; font-size:13px; color:#111827;">${escapeHtml(params.orderDate)}</td>
+            <td class="section" colspan="2">
+              <p class="subhead">Order summary</p>
+            </td>
+          </tr>
+          ${itemRows}
+          ${totalsRows}
+          <tr>
+            <td class="section" colspan="2" style="padding-top:12px;">
+              <p class="subhead">Customer information</p>
+            </td>
           </tr>
           <tr>
-            <td style="padding:4px 0; font-size:13px; color:#6b7280;">Total</td>
-            <td style="padding:4px 0; text-align:right; font-size:15px; color:#111827; font-weight:700;">${escapeHtml(
-              params.total
-            )}</td>
+            <td class="section" style="width:50%; vertical-align:top; padding-right:16px;">
+              <p class="info-title" style="white-space:nowrap;">Shipping address</p>
+              <p class="info">${shippingBlock}</p>
+            </td>
+            <td class="section" style="width:50%; vertical-align:top; padding-left:16px;">
+              <p class="info-title" style="white-space:nowrap;">Billing address</p>
+              <p class="info">${billingBlock}</p>
+            </td>
+          </tr>
+          <tr>
+            <td class="section" colspan="2">
+              <p class="info-title">Payment method</p>
+              <p class="info">${escapeHtml(paymentMethod)}</p>
+            </td>
+          </tr>
+          <tr>
+            <td class="footer" colspan="2">If this was not you, you can safely ignore this email.</td>
           </tr>
         </table>
-      </div>
-
-      <div style="background:#ffffff; border-radius:16px; box-shadow:0 10px 30px rgba(15, 23, 42, 0.08); padding:20px; margin-bottom:12px;">
-        <div style="font-size:13px; color:#6b7280; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">Customer</div>
-        <div style="font-family: Georgia, 'Times New Roman', serif; font-size:18px; color:#111827; font-weight:700; margin-bottom:4px;">${escapeHtml(
-          params.customerName || 'Customer'
-        )}</div>
-        ${
-          params.customerEmail
-            ? `<div style="font-size:14px; margin-bottom:6px;"><a href="mailto:${escapeHtml(
-                params.customerEmail
-              )}" style="color:#2563eb; text-decoration:none;">${escapeHtml(params.customerEmail)}</a></div>`
-            : ''
-        }
-        ${shippingBlock}
-      </div>
-
-      <div style="background:#ffffff; border-radius:16px; box-shadow:0 10px 30px rgba(15, 23, 42, 0.08); padding:20px; margin-bottom:12px;">
-        <div style="font-size:13px; color:#6b7280; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:8px;">Items</div>
-        <table role="presentation" style="width:100%; border-collapse:collapse;">
-          ${itemsHtml}
-        </table>
-      </div>
-
-      <div style="background:#ffffff; border-radius:16px; box-shadow:0 10px 30px rgba(15, 23, 42, 0.08); padding:20px; margin-bottom:16px;">
-        <div style="font-size:13px; color:#6b7280; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:8px;">Totals</div>
-        <table role="presentation" style="width:100%; border-collapse:collapse;">
-          <tr>
-            <td style="padding:6px 0; font-size:14px; color:#374151;">Subtotal</td>
-            <td style="padding:6px 0; text-align:right; font-size:14px; color:#111827; font-weight:600;">${escapeHtml(
-              params.subtotal
-            )}</td>
-          </tr>
-          <tr>
-            <td style="padding:6px 0; font-size:14px; color:#374151;">Shipping</td>
-            <td style="padding:6px 0; text-align:right; font-size:14px; color:#111827; font-weight:600;">${escapeHtml(
-              params.shipping
-            )}</td>
-          </tr>
-          <tr>
-            <td style="padding:10px 0 0; font-size:16px; color:#111827; font-weight:700;">Total</td>
-            <td style="padding:10px 0 0; text-align:right; font-size:16px; color:#111827; font-weight:700;">${escapeHtml(
-              params.total
-            )}</td>
-          </tr>
-        </table>
-      </div>
-
-      <div style="text-align:center; margin-bottom:10px;">
-        <a href="${escapeHtml(params.adminUrl)}" style="display:inline-block; padding:12px 18px; background:#111827; color:#ffffff; text-decoration:none; border-radius:12px; font-weight:700; font-size:14px; letter-spacing:0.02em;">View in Admin</a>
-        ${stripeButton}
-      </div>
-
-      <div style="text-align:center; font-size:12px; color:#6b7280; line-height:1.6; margin-top:4px;">
-        If this wasn’t you, you can safely ignore this email.
-      </div>
-    </div>
-  </div>
-  `;
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 }
 
 export function renderOwnerNewSaleEmailText(params: OwnerNewSaleParams): string {
   const lines = [
-    'NEW SALE — The Chesapeake Shell',
+    'NEW SALE - Shell & Brush',
     `Order: ${params.orderNumber}`,
     `Type: ${params.orderTypeLabel}`,
     `Status: ${params.statusLabel}`,
@@ -173,9 +207,9 @@ export function renderOwnerNewSaleEmailText(params: OwnerNewSaleParams): string 
     `Total: ${params.total}`,
     `Customer: ${params.customerName}`,
     params.customerEmail ? `Email: ${params.customerEmail}` : null,
-    params.shippingAddressLine1 || params.shippingAddressLine2
-      ? `Shipping: ${[params.shippingAddressLine1, params.shippingAddressLine2].filter(Boolean).join(', ')}`
-      : 'Shipping: Not provided',
+    params.shippingAddress ? `Shipping: ${params.shippingAddress}` : 'Shipping: Not provided',
+    params.billingAddress ? `Billing: ${params.billingAddress}` : 'Billing: Same as shipping',
+    params.paymentMethod ? `Payment: ${params.paymentMethod}` : 'Payment: Not provided',
     '',
     'Items:',
     ...(params.items || []).map((item) => {
@@ -208,3 +242,14 @@ function escapeHtml(value: string) {
     .replace(/'/g, '&#39;');
 }
 
+function formatAddressLines(value: string) {
+  if (!value) return [];
+  return value
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function renderAddressLines(lines: string[]) {
+  return lines.map((line) => escapeHtml(line)).join('<br/>');
+}

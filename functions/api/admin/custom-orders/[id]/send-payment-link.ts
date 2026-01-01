@@ -1,5 +1,9 @@
 import Stripe from 'stripe';
 import { resolveFromEmail, sendEmail } from '../../../../_lib/email';
+import {
+  renderCustomOrderPaymentLinkEmailHtml,
+  renderCustomOrderPaymentLinkEmailText,
+} from '../../../../_lib/customOrderPaymentLinkEmail';
 import { requireAdmin } from '../../../_lib/adminAuth';
 
 type D1PreparedStatement = {
@@ -173,23 +177,29 @@ export async function onRequestPost(context: {
       return jsonResponse({ error: 'Failed to save payment link', detail: update.error || 'unknown error' }, 500);
     }
 
-    const html = `
-      <div style="font-family: Inter, Arial, sans-serif; color: #0f172a; line-height: 1.5;">
-        <p style="margin: 0 0 12px;">Here’s the secure payment link to <strong>YOUR</strong> custom order <strong>${displayId}</strong>.</p>
-        <p style="margin: 0 0 12px;">Amount: <strong>$${(amount / 100).toFixed(2)}</strong> (shipping $${(shippingCents / 100).toFixed(2)} included at checkout)</p>
-        <p style="margin: 0 0 12px;">Description: ${order.description || 'Custom order'}</p>
-        <p style="margin: 0 0 12px;"><a href="${session.url}" style="color:#0f172a;">Pay securely via Stripe</a></p>
-        <p style="margin: 0;">Thank you!</p>
-      </div>
-    `;
-    const text = `Custom order ${displayId}
-Amount: $${(amount / 100).toFixed(2)}
-Description: ${order.description || 'Custom order'}
-Pay: ${session.url}`;
-
+    const html = renderCustomOrderPaymentLinkEmailHtml({
+      brandName: 'Shell & Brush',
+      orderLabel: displayId,
+      ctaUrl: session.url,
+      amountCents: amount,
+      currency: 'usd',
+      shippingCents,
+      thumbnailUrl: null,
+      description: order.description || null,
+    });
+    const text = renderCustomOrderPaymentLinkEmailText({
+      brandName: 'Shell & Brush',
+      orderLabel: displayId,
+      ctaUrl: session.url,
+      amountCents: amount,
+      currency: 'usd',
+      shippingCents,
+      thumbnailUrl: null,
+      description: order.description || null,
+    });
     console.log('[email] custom order send', {
       to: customerEmail,
-      subject: 'The Chesapeake Shell - Custom Order',
+      subject: 'Shell & Brush Custom Order Payment',
       hasHtml: !!html,
       htmlLen: html.length,
       hasText: !!text,
@@ -203,7 +213,7 @@ Pay: ${session.url}`;
     const emailResult = await sendEmail(
       {
         to: customerEmail,
-        subject: 'The Chesapeake Shell - Custom Order',
+        subject: 'Shell & Brush Custom Order Payment',
         html,
         text,
       },

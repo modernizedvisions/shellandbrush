@@ -12,6 +12,8 @@ import {
   renderOwnerNewSaleEmailText,
   type OwnerNewSaleItem,
 } from '../../_lib/ownerNewSaleEmail';
+import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
+import { resolvePublicImageUrl } from '../_lib/imageUrls';
 import { resolveCustomEmailTotals, resolveStandardEmailTotals } from '../../_lib/emailTotals';
 import { calculateShippingCents } from '../../_lib/shipping';
 import {
@@ -44,6 +46,7 @@ type Env = {
   RESEND_API_KEY?: string;
   PUBLIC_SITE_URL?: string;
   VITE_PUBLIC_SITE_URL?: string;
+  PUBLIC_IMAGES_BASE_URL?: string;
 };
 
 const createStripeClient = (secretKey: string) =>
@@ -61,6 +64,7 @@ export const onRequestPost = async (context: {
   const { request, env } = context;
   const ownerTo = env.RESEND_OWNER_TO || env.EMAIL_OWNER_TO;
   const siteUrl = (env.PUBLIC_SITE_URL || env.VITE_PUBLIC_SITE_URL || '').replace(/\/+$/, '');
+  const imageBaseUrl = getPublicImagesBaseUrl(request, env);
   const ok = () =>
     new Response(JSON.stringify({ received: true }), {
       status: 200,
@@ -292,9 +296,8 @@ export const onRequestPost = async (context: {
       });
 
       if (insertResult && customerEmail) {
-        const confirmationItems: OrderConfirmationEmailItem[] = mapLineItemsToEmailItems(
-          rawLineItems,
-          session.currency || 'usd'
+        const confirmationItems: OrderConfirmationEmailItem[] = (
+          await mapLineItemsToEmailItems(env.DB, rawLineItems, session.currency || 'usd', imageBaseUrl)
         ).map((item) => ({
           name: item.name,
           qty: item.quantity,
@@ -325,41 +328,47 @@ export const onRequestPost = async (context: {
         const orderLabel = insertResult.displayOrderId || insertResult.orderId;
         const orderDate = formatOrderDate(new Date());
         const shippingAddressText = formatShippingAddress(shippingAddress);
+        const billingAddressText = formatShippingAddress(firstCharge?.billing_details?.address || null);
+        const paymentMethodLabel = formatPaymentMethodLabel(cardBrand, cardLast4);
 
         try {
           const html = renderOrderConfirmationEmailHtml({
-            brandName: 'The Chesapeake Shell',
+            brandName: 'Shell & Brush',
             orderNumber: orderLabel,
             orderDate,
             customerName: shippingName || session.customer_details?.name || null,
             customerEmail: customerEmail || undefined,
             shippingAddress: shippingAddressText || undefined,
+            billingAddress: billingAddressText || undefined,
+            paymentMethod: paymentMethodLabel,
             items: confirmationItems,
             subtotal: totalsForEmail.subtotalCents,
             shipping: totalsForEmail.shippingCents,
             total: totalsForEmail.totalCents,
             primaryCtaUrl: confirmationUrl,
-            primaryCtaLabel: 'View order details',
+            primaryCtaLabel: 'View Order Details',
           });
           const text = renderOrderConfirmationEmailText({
-            brandName: 'The Chesapeake Shell',
+            brandName: 'Shell & Brush',
             orderNumber: orderLabel,
             orderDate,
             customerName: shippingName || session.customer_details?.name || null,
             customerEmail: customerEmail || undefined,
             shippingAddress: shippingAddressText || undefined,
+            billingAddress: billingAddressText || undefined,
+            paymentMethod: paymentMethodLabel,
             items: confirmationItems,
             subtotal: totalsForEmail.subtotalCents,
             shipping: totalsForEmail.shippingCents,
             total: totalsForEmail.totalCents,
             primaryCtaUrl: confirmationUrl,
-            primaryCtaLabel: 'View order details',
+            primaryCtaLabel: 'View Order Details',
           });
 
         const emailResult = await sendEmail(
           {
             to: customerEmail,
-            subject: `The Chesapeake Shell — Order Confirmed (${orderLabel})`,
+            subject: `Shell & Brush - Order Confirmed (${orderLabel})`,
             html,
             text,
           },
@@ -380,9 +389,8 @@ export const onRequestPost = async (context: {
 
       if (insertResult && !invoiceId && !customOrderId && !customSource) {
         const orderLabel = insertResult.displayOrderId || insertResult.orderId;
-        const confirmationItems: OwnerNewSaleItem[] = mapLineItemsToEmailItems(
-          rawLineItems,
-          session.currency || 'usd'
+        const confirmationItems: OwnerNewSaleItem[] = (
+          await mapLineItemsToEmailItems(env.DB, rawLineItems, session.currency || 'usd', imageBaseUrl)
         ).map((item) => ({
           name: item.name,
           qtyLabel: item.quantity > 1 ? `x${item.quantity}` : '',
@@ -410,7 +418,6 @@ export const onRequestPost = async (context: {
         };
         const adminUrl = siteUrl ? `${siteUrl}/admin` : '/admin';
         const stripeUrl = buildStripeDashboardUrl(paymentIntentId, session.id, env.STRIPE_SECRET_KEY);
-        const shippingLines = formatShippingAddressLines(shippingAddress);
         const orderDate = formatOrderDate(new Date());
 
         try {
@@ -421,8 +428,9 @@ export const onRequestPost = async (context: {
             statusLabel: 'PAID',
             customerName: shippingName || session.customer_details?.name || 'Customer',
             customerEmail: customerEmail || '',
-            shippingAddressLine1: shippingLines.line1,
-            shippingAddressLine2: shippingLines.line2,
+            shippingAddress: shippingAddressText || undefined,
+            billingAddress: billingAddressText || undefined,
+            paymentMethod: paymentMethodLabel,
             items: confirmationItems,
             subtotal: totals.subtotal,
             shipping: totals.shipping,
@@ -437,8 +445,9 @@ export const onRequestPost = async (context: {
             statusLabel: 'PAID',
             customerName: shippingName || session.customer_details?.name || 'Customer',
             customerEmail: customerEmail || '',
-            shippingAddressLine1: shippingLines.line1,
-            shippingAddressLine2: shippingLines.line2,
+            shippingAddress: shippingAddressText || undefined,
+            billingAddress: billingAddressText || undefined,
+            paymentMethod: paymentMethodLabel,
             items: confirmationItems,
             subtotal: totals.subtotal,
             shipping: totals.shipping,
@@ -450,7 +459,7 @@ export const onRequestPost = async (context: {
           const emailResult = await sendEmail(
             {
               to: ownerTo,
-              subject: `NEW SALE — The Chesapeake Shell (${orderLabel})`,
+              subject: `NEW SALE - Shell & Brush (${orderLabel})`,
               html,
               text,
             },
@@ -900,7 +909,23 @@ async function ensureCustomOrdersSchema(db: D1Database) {
   }
 }
 
-function mapLineItemsToEmailItems(lineItems: Stripe.LineItem[], currency: string): EmailItem[] {
+async function mapLineItemsToEmailItems(
+  db: D1Database,
+  lineItems: Stripe.LineItem[],
+  currency: string,
+  imageBaseUrl: string
+): Promise<EmailItem[]> {
+  const productIds = filterNonShippingLineItems(lineItems)
+    .map((line) => {
+      if (typeof line.price?.product === 'string') return line.price.product;
+      if (line.price?.product && typeof line.price.product !== 'string') {
+        return (line.price.product as Stripe.Product).id;
+      }
+      return null;
+    })
+    .filter(Boolean) as string[];
+  const productImageMap = await buildProductImageMap(db, productIds, imageBaseUrl);
+
   return filterNonShippingLineItems(lineItems).map((line) => {
     const productObj =
       line.price?.product && typeof line.price.product !== 'string'
@@ -911,10 +936,17 @@ function mapLineItemsToEmailItems(lineItems: Stripe.LineItem[], currency: string
       productObj?.name ||
       (line.price as any)?.product_data?.name ||
       'Item';
-    const imageUrl =
+    const productId =
+      typeof line.price?.product === 'string'
+        ? line.price.product
+        : productObj?.id || null;
+    const stripeImageUrl =
       productObj?.images?.[0] ||
       (line.price as any)?.product_data?.images?.[0] ||
       null;
+    const imageUrl =
+      (productId ? productImageMap.get(productId) || null : null) ||
+      resolveCandidateImageUrl(stripeImageUrl, imageBaseUrl);
     return {
       name,
       quantity: line.quantity ?? 1,
@@ -922,6 +954,135 @@ function mapLineItemsToEmailItems(lineItems: Stripe.LineItem[], currency: string
       imageUrl,
     } as EmailItem;
   });
+}
+
+type ProductImageRow = {
+  id: string;
+  stripe_product_id?: string | null;
+  image_url?: string | null;
+  image_urls_json?: string | null;
+  primary_image_id?: string | null;
+  image_ids_json?: string | null;
+};
+
+type ImageRow = {
+  id: string;
+  public_url?: string | null;
+  storage_key?: string | null;
+};
+
+async function buildProductImageMap(
+  db: D1Database,
+  productIds: string[],
+  imageBaseUrl: string
+): Promise<Map<string, string>> {
+  const unique = Array.from(new Set(productIds.filter(Boolean)));
+  if (!unique.length) return new Map();
+  const placeholders = unique.map(() => '?').join(',');
+  let rows: ProductImageRow[] = [];
+
+  try {
+    const result = await db
+      .prepare(
+        `SELECT id, stripe_product_id, image_url, image_urls_json, primary_image_id, image_ids_json
+         FROM products
+         WHERE stripe_product_id IN (${placeholders}) OR id IN (${placeholders});`
+      )
+      .bind(...unique, ...unique)
+      .all<ProductImageRow>();
+    rows = result.results || [];
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[stripe webhook] failed to load product images', { message });
+    return new Map();
+  }
+
+  const imageIds = new Set<string>();
+  for (const row of rows) {
+    if (row.primary_image_id) imageIds.add(row.primary_image_id);
+    const extras = safeParseJsonArray(row.image_ids_json);
+    for (const id of extras) imageIds.add(id);
+  }
+
+  const imageMap = new Map<string, ImageRow>();
+  if (imageIds.size) {
+    const imageIdList = Array.from(imageIds);
+    const imagePlaceholders = imageIdList.map(() => '?').join(',');
+    try {
+      const imageResult = await db
+        .prepare(
+          `SELECT id, public_url, storage_key FROM images WHERE id IN (${imagePlaceholders});`
+        )
+        .bind(...imageIdList)
+        .all<ImageRow>();
+      for (const row of imageResult.results || []) {
+        imageMap.set(row.id, row);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[stripe webhook] failed to load image records', { message });
+    }
+  }
+
+  const productImageMap = new Map<string, string>();
+  for (const row of rows) {
+    let resolved =
+      resolveCandidateImageUrl(row.image_url || null, imageBaseUrl) ||
+      resolveCandidateImageUrl(safeParseJsonArray(row.image_urls_json)[0] || null, imageBaseUrl);
+
+    if (!resolved) {
+      const candidates = [
+        row.primary_image_id || null,
+        ...safeParseJsonArray(row.image_ids_json),
+      ].filter(Boolean) as string[];
+      for (const id of candidates) {
+        const imageRow = imageMap.get(id);
+        if (!imageRow) continue;
+        const resolvedUrl = resolvePublicImageUrl(
+          imageRow.public_url || null,
+          imageRow.storage_key || null,
+          imageBaseUrl
+        );
+        if (resolvedUrl && /^https?:\/\//i.test(resolvedUrl)) {
+          resolved = resolvedUrl;
+          break;
+        }
+      }
+    }
+
+    if (resolved) {
+      if (row.stripe_product_id) {
+        productImageMap.set(row.stripe_product_id, resolved);
+      }
+      productImageMap.set(row.id, resolved);
+    }
+  }
+
+  return productImageMap;
+}
+
+function resolveCandidateImageUrl(value: string | null, imageBaseUrl: string): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('shellandbrush/') || trimmed.startsWith('shell-and-brush/')) {
+    return `${imageBaseUrl}/${trimmed}`;
+  }
+  return null;
+}
+
+function safeParseJsonArray(value?: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item)).filter(Boolean);
+    }
+  } catch {
+    return [];
+  }
+  return [];
 }
 
 async function handleCustomOrderPayment(args: {
@@ -1079,6 +1240,9 @@ async function handleCustomOrderPayment(args: {
 
   const confirmationCustomerEmail = customerEmail || customOrder.customer_email || null;
   const orderLabel = displayId || insertResult?.displayOrderId || insertResult?.orderId || displayId;
+  const shippingAddressText = formatShippingAddress(shippingAddress);
+  const billingAddressText = '';
+  const paymentMethodLabel = formatPaymentMethodLabel(cardBrand, cardLast4);
 
   if (insertResult && confirmationCustomerEmail) {
     const siteUrlForConfirmation = resolveSiteUrl(env);
@@ -1086,7 +1250,6 @@ async function handleCustomOrderPayment(args: {
       ? `${siteUrlForConfirmation}/checkout/return?session_id=${session.id}`
       : `/checkout/return?session_id=${session.id}`;
     const orderDate = formatOrderDate(new Date());
-    const shippingAddressText = formatShippingAddress(shippingAddress);
     const totalsForEmail = resolveCustomEmailTotals({
       order: {
         total_cents: totalCents,
@@ -1116,38 +1279,42 @@ async function handleCustomOrderPayment(args: {
 
     try {
       const html = renderOrderConfirmationEmailHtml({
-        brandName: 'The Chesapeake Shell',
+        brandName: 'Shell & Brush',
         orderNumber: orderLabel,
         orderDate,
         customerName: customOrder.customer_name || shippingName || session.customer_details?.name || null,
         customerEmail: confirmationCustomerEmail || undefined,
         shippingAddress: shippingAddressText || undefined,
+        billingAddress: billingAddressText || undefined,
+        paymentMethod: paymentMethodLabel,
         items: confirmationItems,
         subtotal: totalsForEmail.subtotalCents,
         shipping: totalsForEmail.shippingCents,
         total: totalsForEmail.totalCents,
         primaryCtaUrl: confirmationUrl,
-        primaryCtaLabel: 'View order details',
+        primaryCtaLabel: 'View Order Details',
       });
       const text = renderOrderConfirmationEmailText({
-        brandName: 'The Chesapeake Shell',
+        brandName: 'Shell & Brush',
         orderNumber: orderLabel,
         orderDate,
         customerName: customOrder.customer_name || shippingName || session.customer_details?.name || null,
         customerEmail: confirmationCustomerEmail || undefined,
         shippingAddress: shippingAddressText || undefined,
+        billingAddress: billingAddressText || undefined,
+        paymentMethod: paymentMethodLabel,
         items: confirmationItems,
         subtotal: totalsForEmail.subtotalCents,
         shipping: totalsForEmail.shippingCents,
         total: totalsForEmail.totalCents,
         primaryCtaUrl: confirmationUrl,
-        primaryCtaLabel: 'View order details',
+        primaryCtaLabel: 'View Order Details',
       });
 
       const emailResult = await sendEmail(
         {
           to: confirmationCustomerEmail,
-          subject: `The Chesapeake Shell — Order Confirmed (${orderLabel})`,
+            subject: `Shell & Brush - Order Confirmed (${orderLabel})`,
           html,
           text,
         },
@@ -1200,7 +1367,6 @@ async function handleCustomOrderPayment(args: {
     shipping: formatMoney(totalsForOwner.shippingCents),
     total: formatMoney(totalsForOwner.totalCents),
   };
-  const shippingLines = formatShippingAddressLines(shippingAddress);
   const orderDate = formatOrderDate(new Date());
   const stripeUrl = buildStripeDashboardUrl(paymentIntentId, session.id, env.STRIPE_SECRET_KEY);
 
@@ -1212,8 +1378,9 @@ async function handleCustomOrderPayment(args: {
       statusLabel: 'PAID',
       customerName: customOrder.customer_name || shippingName || session.customer_details?.name || 'Customer',
       customerEmail: customerEmail || customOrder.customer_email || '',
-      shippingAddressLine1: shippingLines.line1,
-      shippingAddressLine2: shippingLines.line2,
+      shippingAddress: shippingAddressText || undefined,
+      billingAddress: billingAddressText || undefined,
+      paymentMethod: paymentMethodLabel,
       items: ownerItems,
       subtotal: ownerTotals.subtotal,
       shipping: ownerTotals.shipping,
@@ -1228,8 +1395,9 @@ async function handleCustomOrderPayment(args: {
       statusLabel: 'PAID',
       customerName: customOrder.customer_name || shippingName || session.customer_details?.name || 'Customer',
       customerEmail: customerEmail || customOrder.customer_email || '',
-      shippingAddressLine1: shippingLines.line1,
-      shippingAddressLine2: shippingLines.line2,
+      shippingAddress: shippingAddressText || undefined,
+      billingAddress: billingAddressText || undefined,
+      paymentMethod: paymentMethodLabel,
       items: ownerItems,
       subtotal: ownerTotals.subtotal,
       shipping: ownerTotals.shipping,
@@ -1241,7 +1409,7 @@ async function handleCustomOrderPayment(args: {
     const emailResult = await sendEmail(
       {
         to: ownerTo,
-        subject: `NEW SALE — The Chesapeake Shell (${orderLabel})`,
+        subject: `NEW SALE - Shell & Brush (${orderLabel})`,
         html,
         text,
       },
@@ -1472,6 +1640,14 @@ function formatShippingAddress(address: Stripe.Address | Stripe.ShippingAddress 
     .map((p) => (p || '').trim())
     .filter(Boolean);
   return parts.join(', ');
+}
+
+function formatPaymentMethodLabel(cardBrand: string | null, cardLast4: string | null): string {
+  const brand = cardBrand ? cardBrand.toUpperCase() : '';
+  if (brand && cardLast4) return `${brand} **** ${cardLast4}`;
+  if (brand) return brand;
+  if (cardLast4) return `Card **** ${cardLast4}`;
+  return 'Card';
 }
 
 function resolveSiteUrl(env: {
