@@ -2,20 +2,22 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchHomeHeroConfig } from '../../lib/api';
 
-const HERO_IMAGE_SRC = '/images/hero-bg.jpg';
-
 export default function HeroSection() {
   const [imageFailed, setImageFailed] = useState(false);
-  const [heroImageUrl, setHeroImageUrl] = useState<string>(HERO_IMAGE_SRC);
+  const [heroImageUrl, setHeroImageUrl] = useState<string>('');
 
   useEffect(() => {
     let cancelled = false;
     const loadHero = async () => {
       try {
         const config = await fetchHomeHeroConfig();
-        const first = Array.isArray(config?.heroImages) ? config.heroImages.find((img: any) => img?.imageUrl) : null;
-        if (!cancelled && first?.imageUrl) {
-          setHeroImageUrl(first.imageUrl);
+        const heroUrl =
+          (config?.heroImageUrl ?? '').trim() ||
+          (config?.heroImages?.[0]?.imageUrl ?? '').trim() ||
+          '';
+        if (!cancelled) {
+          setHeroImageUrl(heroUrl);
+          setImageFailed(false);
         }
       } catch {
         // Keep fallback image on failure.
@@ -34,6 +36,8 @@ export default function HeroSection() {
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
+
+  const showImage = !!heroImageUrl && !imageFailed;
 
   return (
     <section className="py-20 md:py-28">
@@ -69,17 +73,25 @@ export default function HeroSection() {
           <div className="order-1 md:order-2 flex justify-center md:justify-end">
             <div className="w-full max-w-sm sm:max-w-md md:max-w-lg">
               <div className="relative aspect-[4/5] overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 shadow-sm">
-                {imageFailed ? (
-                  <div className="flex h-full w-full items-center justify-center text-xs uppercase tracking-[0.3em] text-gray-400">
-                    Hero Image
-                  </div>
-                ) : (
+                {showImage ? (
                   <img
                     src={heroImageUrl}
                     alt="Artist holding artwork"
-                    className="h-full w-full object-cover"
-                    onError={() => setImageFailed(true)}
+                    className="absolute inset-0 h-full w-full object-cover z-0"
+                    onLoad={() => console.log('[hero] loaded', heroImageUrl)}
+                    onError={() => {
+                      console.error('[hero] failed', heroImageUrl);
+                      setImageFailed(true);
+                    }}
                   />
+                ) : (
+                  <div className="absolute inset-0 bg-gradient-to-br from-amber-50 via-slate-50 to-stone-100 z-0" />
+                )}
+                <div className="absolute inset-0 bg-black/20 z-10 pointer-events-none" />
+                {!showImage && (
+                  <div className="relative z-20 flex h-full w-full items-center justify-center text-xs uppercase tracking-[0.3em] text-gray-400">
+                    Hero Image
+                  </div>
                 )}
               </div>
             </div>
