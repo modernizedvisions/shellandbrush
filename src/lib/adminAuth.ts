@@ -9,6 +9,9 @@ export type AdminAuthStatus = {
 
 const ADMIN_PASSWORD_KEY = 'admin_password';
 
+// Local dev: run Cloudflare Pages Functions with `wrangler pages dev --proxy 5173`
+// and provide `.dev.vars` with ADMIN_PASSWORD=... (plus PUBLIC_IMAGES_BASE_URL).
+
 export function getStoredAdminPassword(): string {
   try {
     return localStorage.getItem(ADMIN_PASSWORD_KEY) || '';
@@ -43,7 +46,20 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
     headers.set('x-admin-password', password);
   }
 
-  return fetch(input, { ...init, headers });
+  const response = await fetch(input, { ...init, headers });
+  if (response.status === 401) {
+    const text = await response.clone().text().catch(() => '');
+    const url = input instanceof Request ? input.url : String(input);
+    console.error('[admin] unauthorized', { url, status: response.status, bodyText: text });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('admin-auth-failed', {
+          detail: { url, status: response.status, bodyText: text },
+        })
+      );
+    }
+  }
+  return response;
 }
 
 export async function verifyAdminPassword(password: string): Promise<boolean> {

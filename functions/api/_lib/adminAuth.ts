@@ -6,17 +6,6 @@ type RequireAdminOptions = {
   log?: boolean;
 };
 
-const normalizePassword = (value: string) => {
-  let trimmed = value.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    trimmed = trimmed.slice(1, -1).trim();
-  }
-  return trimmed;
-};
-
 const json = (data: unknown, status: number) =>
   new Response(JSON.stringify(data), {
     status,
@@ -24,31 +13,61 @@ const json = (data: unknown, status: number) =>
   });
 
 export function requireAdmin(req: Request, env: Env, opts?: RequireAdminOptions): Response | null {
-  const expected = normalizePassword(env.ADMIN_PASSWORD ?? '');
-  const provided = normalizePassword(req.headers.get('x-admin-password') ?? '');
+  const expected = env.ADMIN_PASSWORD ?? '';
+  const provided = req.headers.get('x-admin-password') ?? '';
+  const expectedNorm = expected.trim();
+  const providedNorm = provided.trim();
   const shouldLog = opts?.log !== false;
 
-  if (!expected) {
+  if (!expectedNorm) {
     if (shouldLog) {
       console.warn('[requireAdmin] missing env ADMIN_PASSWORD');
     }
-    return json({ error: 'Admin not configured' }, 401);
+    return json(
+      {
+        ok: false,
+        code: 'UNAUTHORIZED',
+        expectedLength: expected.length,
+        providedLength: provided.length,
+        hasExpected: false,
+        hasProvided: !!providedNorm,
+      },
+      401
+    );
   }
 
-  if (!provided) {
+  if (!providedNorm) {
     if (shouldLog) {
       console.warn('[requireAdmin] missing header x-admin-password');
     }
-    return json({ error: 'Unauthorized' }, 401);
+    return json(
+      {
+        ok: false,
+        code: 'UNAUTHORIZED',
+        expectedLength: expected.length,
+        providedLength: provided.length,
+        hasExpected: true,
+        hasProvided: false,
+      },
+      401
+    );
   }
 
-  if (provided !== expected) {
+  if (providedNorm !== expectedNorm) {
     if (shouldLog) {
-      console.warn(
-        `[requireAdmin] password mismatch (expectedLen=${expected.length} providedLen=${provided.length})`
-      );
+      console.warn(`[requireAdmin] password mismatch (expectedLen=${expected.length} providedLen=${provided.length})`);
     }
-    return json({ error: 'Unauthorized' }, 401);
+    return json(
+      {
+        ok: false,
+        code: 'UNAUTHORIZED',
+        expectedLength: expected.length,
+        providedLength: provided.length,
+        hasExpected: true,
+        hasProvided: true,
+      },
+      401
+    );
   }
 
   return null;

@@ -91,6 +91,7 @@ export function AdminPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [authNotice, setAuthNotice] = useState('');
+  const [adminAuthNotice, setAdminAuthNotice] = useState('');
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
@@ -207,6 +208,16 @@ export function AdminPage() {
     };
 
     void verifyStored();
+  }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      setAdminAuthNotice('Admin auth failed. Check /api/admin/debug-auth.');
+    };
+    window.addEventListener('admin-auth-failed', handler as EventListener);
+    return () => {
+      window.removeEventListener('admin-auth-failed', handler as EventListener);
+    };
   }, []);
 
   useEffect(() => {
@@ -971,6 +982,11 @@ export function AdminPage() {
             Logout
           </button>
         </div>
+        {adminAuthNotice && (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            {adminAuthNotice}
+          </div>
+        )}
 
         <div className="mb-6 border-b border-gray-200">
           <nav className="flex gap-4 justify-start md:justify-center overflow-x-auto whitespace-nowrap -mx-4 px-4 md:mx-0 md:px-0">
