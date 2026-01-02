@@ -21,16 +21,16 @@ export function SocialsSection() {
             >
               Follow on TikTok →
             </a>
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-              <div className="aspect-[9/16] w-full">
-                <iframe
-                  title="TikTok embed"
-                  src={TIKTOK_EMBED_URL}
-                  className="h-full w-full border-0"
-                  loading="lazy"
-                  allow="encrypted-media"
-                />
-              </div>
+            <div className="w-full overflow-hidden h-[620px] sm:h-[680px] md:h-[720px] lg:h-[760px]">
+              <iframe
+                title="TikTok embed"
+                src={TIKTOK_EMBED_URL}
+                className="h-full w-full border-0"
+                loading="lazy"
+                allow="encrypted-media"
+                scrolling="no"
+                style={{ overflow: 'hidden' }}
+              />
             </div>
           </div>
 
@@ -43,15 +43,15 @@ export function SocialsSection() {
             >
               Follow on Instagram →
             </a>
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-              <div className="aspect-[4/5] w-full">
-                <iframe
-                  title="Instagram embed"
-                  src={INSTAGRAM_EMBED_URL}
-                  className="h-full w-full border-0"
-                  loading="lazy"
-                />
-              </div>
+            <div className="w-full overflow-hidden h-[620px] sm:h-[680px] md:h-[720px] lg:h-[760px]">
+              <iframe
+                title="Instagram embed"
+                src={INSTAGRAM_EMBED_URL}
+                className="h-full w-full border-0"
+                loading="lazy"
+                scrolling="no"
+                style={{ overflow: 'hidden' }}
+              />
             </div>
           </div>
         </div>
