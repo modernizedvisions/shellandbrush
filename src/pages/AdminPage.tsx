@@ -170,7 +170,7 @@ export function AdminPage() {
         return;
       }
       const configToSave: HeroConfig = {
-        heroImages: (heroConfig.heroImages || []).filter((img) => !!img?.imageUrl).slice(0, 3),
+        heroImages: (heroConfig.heroImages || []).filter((img) => !!img?.imageUrl).slice(0, 1),
         heroRotationEnabled: !!heroConfig.heroRotationEnabled,
       };
       await saveHomeHeroConfig(configToSave);
@@ -287,7 +287,7 @@ export function AdminPage() {
       setSoldProducts(soldData);
       setGalleryImages(galleryData);
       setHeroConfig({
-        heroImages: (heroData.heroImages || []).slice(0, 3),
+        heroImages: (heroData.heroImages || []).slice(0, 1),
         heroRotationEnabled: !!heroData.heroRotationEnabled,
       });
     } catch (err) {
@@ -1161,8 +1161,6 @@ export function AdminPage() {
               onSaveHeroConfig={handleSaveHeroConfig}
               homeSaveState={homeSaveState}
               homeSaveError={homeSaveError}
-              heroRotationEnabled={!!heroConfig.heroRotationEnabled}
-              onHeroRotationToggle={(enabled) => setHeroConfig((prev) => ({ ...prev, heroRotationEnabled: enabled }))}
             />
 
             <AdminGalleryTab

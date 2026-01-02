@@ -20,8 +20,6 @@ export interface AdminHomeTabProps {
   onSaveHeroConfig: () => Promise<void>;
   homeSaveState: 'idle' | 'saving' | 'success';
   homeSaveError?: string;
-  heroRotationEnabled?: boolean;
-  onHeroRotationToggle?: (enabled: boolean) => void;
 }
 
 export function AdminHomeTab({
@@ -30,8 +28,6 @@ export function AdminHomeTab({
   onSaveHeroConfig,
   homeSaveState,
   homeSaveError,
-  heroRotationEnabled = false,
-  onHeroRotationToggle,
 }: AdminHomeTabProps) {
   return (
     <div className="space-y-12">
@@ -41,8 +37,6 @@ export function AdminHomeTab({
         onSave={onSaveHeroConfig}
         saveState={homeSaveState}
         saveError={homeSaveError}
-        heroRotationEnabled={heroRotationEnabled}
-        onHeroRotationToggle={onHeroRotationToggle}
       />
     </div>
   );
@@ -54,8 +48,6 @@ interface HeroCollageAdminProps {
   onSave: () => Promise<void>;
   saveState: 'idle' | 'saving' | 'success';
   saveError?: string;
-  heroRotationEnabled?: boolean;
-  onHeroRotationToggle?: (enabled: boolean) => void;
 }
 
 function HeroCollageAdmin({
@@ -64,10 +56,8 @@ function HeroCollageAdmin({
   onSave,
   saveState,
   saveError,
-  heroRotationEnabled = false,
-  onHeroRotationToggle,
 }: HeroCollageAdminProps) {
-  const slots = [0, 1, 2];
+  const slots = [0];
   const hasUploads = images.some((img) => img?.uploading);
   const hasBlocked = images.some((img) => isBlockedImageUrl(img?.imageUrl));
 
@@ -141,23 +131,6 @@ function HeroCollageAdmin({
           title="Hero Images"
           subtitle="main images on your site"
         />
-        <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-          <div>
-            <p className="text-sm font-medium text-slate-900">Rotate Hero Images</p>
-            <p className="text-xs text-slate-600">
-              ON: rotate through all hero images. OFF: show only the first image.
-            </p>
-          </div>
-          <label className="flex items-center gap-2 text-sm font-medium text-slate-900">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-slate-300 text-slate-900"
-              checked={!!heroRotationEnabled}
-              onChange={(e) => onHeroRotationToggle?.(e.target.checked)}
-            />
-            <span>{heroRotationEnabled ? 'On' : 'Off'}</span>
-          </label>
-        </div>
         <div className="flex justify-center sm:justify-end">
           <AdminSaveButton
             onClick={async () => {
