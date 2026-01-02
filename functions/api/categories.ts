@@ -42,7 +42,7 @@ const BASE_CATEGORY_ORDER = [
 
 const OTHER_ITEMS_CATEGORY = {
   id: 'other-items',
-  name: 'Other Items',
+  name: 'Featured Works',
   slug: 'other-items',
 };
 
@@ -132,9 +132,12 @@ const mapRowToCategory = (row: CategoryRow, imageUrlMap: Map<string, string>): C
   const heroImageUrl =
     row.hero_image_url ||
     (row.hero_image_id ? imageUrlMap.get(row.hero_image_id) || undefined : undefined);
+  const normalizedSlug = toSlug(row.slug);
+  const normalizedName = toSlug(row.name);
+  const featuredWorksName = normalizedSlug === OTHER_ITEMS_CATEGORY.slug || normalizedName === 'other-items';
   return {
     id: row.id,
-    name: row.name,
+    name: featuredWorksName ? OTHER_ITEMS_CATEGORY.name : row.name,
     slug: row.slug,
     imageUrl,
     heroImageUrl,
@@ -173,8 +176,12 @@ const orderCategories = (items: Category[]): Category[] => {
 
   const combined = [...ordered, ...remaining];
   const otherItemsKey = normalize(OTHER_ITEMS_CATEGORY.slug);
-  const isOtherItems = (item: Category) =>
-    normalize(item.slug) === otherItemsKey || normalize(item.name) === otherItemsKey;
+  const featuredWorksKey = normalize(OTHER_ITEMS_CATEGORY.name);
+  const isOtherItems = (item: Category) => {
+    const slugKey = normalize(item.slug);
+    const nameKey = normalize(item.name);
+    return slugKey === otherItemsKey || nameKey === otherItemsKey || nameKey === featuredWorksKey;
+  };
   const otherItems = combined.filter(isOtherItems);
   const withoutOtherItems = combined.filter((item) => !isOtherItems(item));
   return [...withoutOtherItems, ...otherItems];
@@ -235,13 +242,24 @@ async function ensureCategorySchema(db: D1Database) {
 async function ensureOtherItemsCategory(db: D1Database) {
   try {
     const existing = await db
-      .prepare(`SELECT id, slug, name FROM categories WHERE LOWER(slug) IN (?, ?) OR LOWER(name) = ? LIMIT 1;`)
-      .bind(OTHER_ITEMS_CATEGORY.slug, 'uncategorized', OTHER_ITEMS_CATEGORY.name.toLowerCase())
+      .prepare(
+        `SELECT id, slug, name FROM categories WHERE LOWER(slug) IN (?, ?) OR LOWER(name) IN (?, ?) LIMIT 1;`
+      )
+      .bind(
+        OTHER_ITEMS_CATEGORY.slug,
+        'uncategorized',
+        OTHER_ITEMS_CATEGORY.name.toLowerCase(),
+        'other items'
+      )
       .first<{ id: string | null; slug?: string | null; name?: string | null }>();
 
     if (existing?.id) {
       const normalizedSlug = toSlug(existing.slug || existing.name || '');
-      if (normalizedSlug !== OTHER_ITEMS_CATEGORY.slug) {
+      const normalizedName = toSlug(existing.name || '');
+      if (
+        normalizedSlug !== OTHER_ITEMS_CATEGORY.slug ||
+        normalizedName !== toSlug(OTHER_ITEMS_CATEGORY.name)
+      ) {
         await db
           .prepare(`UPDATE categories SET slug = ?, name = ?, show_on_homepage = 1 WHERE id = ?;`)
           .bind(OTHER_ITEMS_CATEGORY.slug, OTHER_ITEMS_CATEGORY.name, existing.id)
@@ -257,7 +275,7 @@ async function ensureOtherItemsCategory(db: D1Database) {
       .run();
     return id;
   } catch (error) {
-    console.error('Failed to ensure Other Items category', error);
+    console.error('Failed to ensure Featured Works category', error);
     return null;
   }
 }

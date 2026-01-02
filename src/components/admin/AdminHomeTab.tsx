@@ -148,14 +148,14 @@ function HeroCollageAdmin({
         {saveError && <div className="text-xs text-red-600">{saveError}</div>}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 justify-items-center">
         {slots.map((slot) => {
           const image = images[slot];
           const inputId = `hero-collage-${slot}`;
           return (
             <div
               key={slot}
-              className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm space-y-3"
+              className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm space-y-3 w-full max-w-md"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();

@@ -14,19 +14,25 @@ interface CategoryManagementModalProps {
 
 const OTHER_ITEMS_CATEGORY = {
   slug: 'other-items',
-  name: 'Other Items',
+  name: 'Featured Works',
 };
 
 const isOtherItemsCategory = (category: Category) =>
   (category.slug || '').toLowerCase() === OTHER_ITEMS_CATEGORY.slug ||
-  (category.name || '').trim().toLowerCase() === OTHER_ITEMS_CATEGORY.name.toLowerCase();
+  (category.name || '').trim().toLowerCase() === OTHER_ITEMS_CATEGORY.name.toLowerCase() ||
+  (category.name || '').trim().toLowerCase() === 'other items';
 
 const normalizeCategoriesList = (items: Category[]): Category[] => {
   const map = new Map<string, Category>();
   items.forEach((cat) => {
     const key = cat.id || cat.name;
     if (!key) return;
-    const normalized: Category = { ...cat, id: cat.id || key };
+    const normalized: Category = {
+      ...cat,
+      id: cat.id || key,
+      name: isOtherItemsCategory(cat) ? OTHER_ITEMS_CATEGORY.name : cat.name,
+      slug: isOtherItemsCategory(cat) ? OTHER_ITEMS_CATEGORY.slug : cat.slug,
+    };
     map.set(key, normalized);
   });
   const ordered = Array.from(map.values()).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));

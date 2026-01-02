@@ -14,30 +14,30 @@ const reviewCount = 18;
 const STATIC_REVIEWS: Review[] = [
   {
     name: 'Hannah',
-    date: 'Jan 5, 2026',
+    date: '',
     stars: 5,
-    item: 'Verified Buyer · Etsy',
+    item: 'Verified Buyer  Etsy',
     text: 'Love it! Wrapped so beautifully, beautiful and unique piece! Will def order more in the future for myself or for gifts',
   },
   {
     name: 'Samantha',
-    date: 'Jan 2, 2026',
+    date: '',
     stars: 5,
-    item: 'Verified Buyer · Etsy',
+    item: 'Verified Buyer  Etsy',
     text: "10/10 recommend everything about this shop! Lauren is so gifted and her talent shines bright in her work! I absolutely love my beautiful art, it will always stand as a reminder of finishing chemo and the journey God has brought me through, while celebrating with my family at our favorite place, the beach! Shipping was the best I've ever experienced, packaged so safely and beautifully! Got here very fast, as well!",
   },
   {
     name: 'Maria',
-    date: 'Dec 27, 2025',
+    date: '',
     stars: 5,
-    item: 'Verified Buyer · Etsy',
+    item: 'Verified Buyer  Etsy',
     text: 'FABULOUS is an understatement. This is a one of a kind piece that has become the focal point of my living room! I absolutely love the colors and materials used by the artist. The quality, uniqueness and style are unmatched!! I will be adding more to my collection and buying as gifts!!! 10/10 recommend!!!!!',
   },
   {
     name: 'Brooke',
-    date: 'Dec 20, 2025',
+    date: '',
     stars: 5,
-    item: 'Verified Buyer · Etsy',
+    item: 'Verified Buyer  Etsy',
     text: 'Absolutely beautiful! Guests have inquired about ordering their own.',
   },
 ];
@@ -66,7 +66,6 @@ export function ProductReviews() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-slate-900">{review.name}</p>
-                <p className="text-xs text-slate-500">{review.date}</p>
               </div>
               <span className="text-amber-500 text-sm">{'â˜…'.repeat(review.stars)}</span>
             </div>

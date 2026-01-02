@@ -16,12 +16,13 @@ interface ProductAdminCardProps {
 
 const OTHER_ITEMS_CATEGORY = {
   slug: 'other-items',
-  name: 'Other Items',
+  name: 'Featured Works',
 };
 
 const isOtherItemsCategory = (category: Category) =>
   (category.slug || '').toLowerCase() === OTHER_ITEMS_CATEGORY.slug ||
-  (category.name || '').trim().toLowerCase() === OTHER_ITEMS_CATEGORY.name.toLowerCase();
+  (category.name || '').trim().toLowerCase() === OTHER_ITEMS_CATEGORY.name.toLowerCase() ||
+  (category.name || '').trim().toLowerCase() === 'other items';
 
 const normalizeCategoriesList = (items: Category[]): Category[] => {
   const map = new Map<string, Category>();
@@ -32,6 +33,8 @@ const normalizeCategoriesList = (items: Category[]): Category[] => {
     const normalized: Category = {
       ...cat,
       id: cat.id || key,
+      name: isOtherItemsCategory(cat) ? OTHER_ITEMS_CATEGORY.name : cat.name,
+      slug: isOtherItemsCategory(cat) ? OTHER_ITEMS_CATEGORY.slug : cat.slug,
     };
     map.set(key, normalized);
   });
@@ -42,14 +45,24 @@ const normalizeCategoriesList = (items: Category[]): Category[] => {
   return [...withoutOtherItems, ...otherItems];
 };
 
+const normalizeFeaturedWorksLabel = (value: string | null) => {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return trimmed;
+  const normalized = trimmed.toLowerCase();
+  if (normalized === 'other items' || normalized === 'other-items') return OTHER_ITEMS_CATEGORY.name;
+  if (normalized === 'featured works' || normalized === 'featured-works') return OTHER_ITEMS_CATEGORY.name;
+  return trimmed;
+};
+
 const ProductAdminCard: React.FC<ProductAdminCardProps> = ({ product, onEdit, onDelete }) => {
   const primaryImageUrl = Array.isArray((product as any).images) && (product as any).images.length > 0
     ? (product as any).images[0]
     : (product as any).imageUrls?.[0] ?? (product as any).imageUrl ?? null;
-  const categoryLabel =
+  const rawCategoryLabel =
     (product as any).category ||
     product.type ||
     ((product as any).categories && Array.isArray((product as any).categories) ? (product as any).categories[0] : null);
+  const categoryLabel = normalizeFeaturedWorksLabel(rawCategoryLabel);
 
   const quantity =
     ('quantity' in product && (product as any).quantity !== undefined)

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { fetchCategories, fetchProducts } from '../lib/api';
 import { Category, Product } from '../lib/types';
 import { ProductGrid } from '../components/ProductGrid';
@@ -13,7 +13,7 @@ const BASE_CATEGORY_ORDER: Category[] = [
 
 const OTHER_ITEMS_CATEGORY: Category = {
   id: 'other-items',
-  name: 'Other Items',
+  name: 'Featured Works',
   slug: 'other-items',
   showOnHomePage: true,
 };
@@ -49,19 +49,44 @@ const orderCategorySummaries = (items: Category[]): Category[] => {
 
   const combined = [...ordered, ...remaining];
   const otherItemsKey = normalize(OTHER_ITEMS_CATEGORY.slug);
-  const isOtherItems = (item: Category) =>
-    normalize(item.slug) === otherItemsKey || normalize(item.name) === otherItemsKey;
+  const featuredWorksKey = normalize(OTHER_ITEMS_CATEGORY.name);
+  const isOtherItems = (item: Category) => {
+    const slugKey = normalize(item.slug);
+    const nameKey = normalize(item.name);
+    return slugKey === otherItemsKey || nameKey === otherItemsKey || nameKey === featuredWorksKey;
+  };
   const otherItems = combined.filter(isOtherItems);
   const withoutOtherItems = combined.filter((item) => !isOtherItems(item));
   return [...withoutOtherItems, ...otherItems];
 };
 
-const ensureCategoryDefaults = (category: Category): Category => ({
-  ...category,
-  name: category.name || category.slug,
-  slug: category.slug || toSlug(category.name || ''),
-  showOnHomePage: category.showOnHomePage ?? true,
-});
+const isFeaturedWorksCategory = (category: Category) => {
+  const slugKey = toSlug(category.slug || '');
+  const nameKey = toSlug(category.name || '');
+  const featuredWorksKey = toSlug(OTHER_ITEMS_CATEGORY.name);
+  return (
+    slugKey === OTHER_ITEMS_CATEGORY.slug ||
+    nameKey === OTHER_ITEMS_CATEGORY.slug ||
+    nameKey === featuredWorksKey
+  );
+};
+
+const ensureCategoryDefaults = (category: Category): Category => {
+  const normalized = {
+    ...category,
+    name: category.name || category.slug,
+    slug: category.slug || toSlug(category.name || ''),
+    showOnHomePage: category.showOnHomePage ?? true,
+  };
+  if (isFeaturedWorksCategory(normalized)) {
+    return {
+      ...normalized,
+      name: OTHER_ITEMS_CATEGORY.name,
+      slug: OTHER_ITEMS_CATEGORY.slug,
+    };
+  }
+  return normalized;
+};
 
 const mergeCategories = (apiCategories: Category[], derivedCategories: Category[]): Category[] => {
   const merged = new Map<string, Category>();
@@ -155,8 +180,12 @@ const buildCategoryLookups = (categoryList: Category[]) => {
 
 const ensureOtherItemsCategory = (categories: Category[], products: Product[]): Category[] => {
   const normalizedOtherItems = toSlug(OTHER_ITEMS_CATEGORY.slug);
+  const normalizedFeaturedWorks = toSlug(OTHER_ITEMS_CATEGORY.name);
   const hasOtherItems = categories.some(
-    (cat) => toSlug(cat.slug) === normalizedOtherItems || toSlug(cat.name) === normalizedOtherItems
+    (cat) =>
+      toSlug(cat.slug) === normalizedOtherItems ||
+      toSlug(cat.name) === normalizedOtherItems ||
+      toSlug(cat.name) === normalizedFeaturedWorks
   );
   const lookups = buildCategoryLookups(categories);
   const needsFallback = products.some((product) => {
@@ -245,11 +274,19 @@ const CATEGORY_COPY: Record<string, { title: string; description: string }> = {
     description: 'Hand-crafted shell stoppers for your favorite bottles.',
   },
   'other-items': {
-    title: 'OTHER ITEMS',
+    title: 'FEATURED WORKS',
     description: '',
   },
   'other items': {
-    title: 'OTHER ITEMS',
+    title: 'FEATURED WORKS',
+    description: '',
+  },
+  'featured-works': {
+    title: 'FEATURED WORKS',
+    description: '',
+  },
+  'featured works': {
+    title: 'FEATURED WORKS',
     description: '',
   },
 };
@@ -260,6 +297,7 @@ export function ShopPage() {
   const [activeCategorySlug, setActiveCategorySlug] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
 
   const categoryList = useMemo(() => {
     const baseList = categories.length ? categories : deriveCategoriesFromProducts(products);
@@ -271,6 +309,16 @@ export function ShopPage() {
   useEffect(() => {
     loadProducts();
   }, []);
+
+  useEffect(() => {
+    if (location.hash !== '#top') return;
+    const target = document.getElementById('shop-top');
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [location.hash]);
 
   useEffect(() => {
     const typeParam = searchParams.get('type');
@@ -378,7 +426,7 @@ export function ShopPage() {
   }, [categoryList]);
 
   return (
-    <div className="py-12 bg-white min-h-screen">
+    <div id="shop-top" className="py-12 bg-white min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mt-10 mb-6">
           <h1 className="text-2xl md:text-3xl font-serif tracking-tight text-slate-900 uppercase">
@@ -431,19 +479,22 @@ export function ShopPage() {
                 CATEGORY_COPY[copyKey] ||
                 CATEGORY_COPY[(category.name || '').toLowerCase()] ||
                 null;
+              const skipHeader = isFeaturedWorksCategory(category);
 
               return (
                 <section key={category.slug} className="mb-10">
-                  <div className="text-center mb-4">
-                    <h2 className="text-2xl md:text-3xl font-serif tracking-tight text-slate-900 uppercase">
-                      {copy?.title || category.name}
-                    </h2>
-                    {copy?.description && (
-                      <p className="mt-1 text-sm md:text-base font-sans text-slate-600 uppercase">
-                        {copy.description}
-                      </p>
-                    )}
-                  </div>
+                  {!skipHeader && (
+                    <div className="text-center mb-4">
+                      <h2 className="text-2xl md:text-3xl font-serif tracking-tight text-slate-900 uppercase">
+                        {copy?.title || category.name}
+                      </h2>
+                      {copy?.description && (
+                        <p className="mt-1 text-sm md:text-base font-sans text-slate-600 uppercase">
+                          {copy.description}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   <ProductGrid products={items} />
                 </section>
               );

@@ -49,7 +49,7 @@ export function FeaturedWorksSection() {
 
         <div className="mt-10 flex justify-center">
           <Link
-            to="/shop"
+            to="/shop#top"
             className="text-lg md:text-xl uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700 underline underline-offset-4"
           >
             Shop All Featured Works

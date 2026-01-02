@@ -11,15 +11,18 @@ interface CategoryCardEditorProps {
 
 const OTHER_ITEMS_CATEGORY = {
   slug: 'other-items',
-  name: 'Other Items',
+  name: 'Featured Works',
 };
 
 const isOtherItemsCategory = (category: Category) =>
   (category.slug || '').toLowerCase() === OTHER_ITEMS_CATEGORY.slug ||
-  (category.name || '').trim().toLowerCase() === OTHER_ITEMS_CATEGORY.name.toLowerCase();
+  (category.name || '').trim().toLowerCase() === OTHER_ITEMS_CATEGORY.name.toLowerCase() ||
+  (category.name || '').trim().toLowerCase() === 'other items';
 
 export function CategoryCardEditor({ category, onUpdate, onDelete, isBusy }: CategoryCardEditorProps) {
-  const [name, setName] = useState(category.name);
+  const [name, setName] = useState(
+    isOtherItemsCategory(category) ? OTHER_ITEMS_CATEGORY.name : category.name
+  );
   const [isSavingName, setIsSavingName] = useState(false);
   const [isUpdatingImage, setIsUpdatingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
