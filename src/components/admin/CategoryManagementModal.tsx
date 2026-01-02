@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { adminCreateCategory, adminDeleteCategory, adminFetchCategories } from '../../lib/api';
+import { adminCreateCategory, adminDeleteCategory, adminFetchCategories, adminUpdateCategory } from '../../lib/api';
 import type { Category } from '../../lib/types';
 
 interface CategoryManagementModalProps {
@@ -49,8 +49,13 @@ export function CategoryManagementModal({
   onCategorySelected,
 }: CategoryManagementModalProps) {
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryDescription, setNewCategoryDescription] = useState('');
   const [categoryMessage, setCategoryMessage] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -74,12 +79,13 @@ export function CategoryManagementModal({
     const trimmed = newCategoryName.trim();
     if (!trimmed) return;
     try {
-      const created = await adminCreateCategory(trimmed);
+      const created = await adminCreateCategory(trimmed, newCategoryDescription.trim());
       if (created) {
         const updated = normalizeCategoriesList([...categories, created]);
         onCategoriesChange(updated);
         onCategorySelected?.(created.name);
         setNewCategoryName('');
+        setNewCategoryDescription('');
         setCategoryMessage('');
       }
     } catch (error) {
@@ -102,6 +108,44 @@ export function CategoryManagementModal({
     } catch (error) {
       console.error('Failed to delete category', error);
       setCategoryMessage('Could not delete category.');
+    }
+  };
+
+  const handleStartEdit = (cat: Category) => {
+    setEditingId(cat.id);
+    setEditName(cat.name || '');
+    setEditDescription(cat.description || '');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditName('');
+    setEditDescription('');
+  };
+
+  const handleSaveEdit = async (cat: Category) => {
+    const name = editName.trim();
+    if (!name) return;
+    setIsSavingEdit(true);
+    try {
+      const updated = await adminUpdateCategory(cat.id, {
+        name,
+        description: editDescription.trim() || null,
+      });
+      if (updated) {
+        const next = normalizeCategoriesList(
+          categories.map((item) => (item.id === cat.id ? updated : item))
+        );
+        onCategoriesChange(next);
+        onCategorySelected?.(updated.name);
+      }
+      handleCancelEdit();
+      setCategoryMessage('');
+    } catch (error) {
+      console.error('Failed to update category', error);
+      setCategoryMessage('Could not update category.');
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
@@ -139,6 +183,13 @@ export function CategoryManagementModal({
               placeholder="New category name"
               className="w-full max-w-xs rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
             />
+            <input
+              type="text"
+              value={newCategoryDescription}
+              onChange={(e) => setNewCategoryDescription(e.target.value)}
+              placeholder="Category subtitle (optional)"
+              className="w-full max-w-xs rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+            />
             <button
               type="button"
               onClick={handleAddCategory}
@@ -160,19 +211,65 @@ export function CategoryManagementModal({
                 <p className="px-3 py-2 text-sm text-slate-500">No categories yet.</p>
               ) : (
                 categories.map((cat) => (
-                  <div key={cat.id} className="flex items-center justify-between px-3 py-2 text-sm">
-                    <span className="text-slate-800">{cat.name}</span>
-                    {isOtherItemsCategory(cat) ? (
-                      <span className="text-xs text-slate-400">Required</span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="text-slate-500 hover:text-red-600"
-                        onClick={() => handleDeleteCategory(cat)}
-                        aria-label={`Delete ${cat.name}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                  <div key={cat.id} className="px-3 py-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-800">{cat.name}</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="text-xs text-slate-500 hover:text-slate-800"
+                          onClick={() => handleStartEdit(cat)}
+                        >
+                          Edit
+                        </button>
+                        {isOtherItemsCategory(cat) ? (
+                          <span className="text-xs text-slate-400">Required</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="text-slate-500 hover:text-red-600"
+                            onClick={() => handleDeleteCategory(cat)}
+                            aria-label={`Delete ${cat.name}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {editingId === cat.id && (
+                      <div className="mt-3 space-y-2">
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          placeholder="Category name"
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                        />
+                        <input
+                          type="text"
+                          value={editDescription}
+                          onChange={(e) => setEditDescription(e.target.value)}
+                          placeholder="Category subtitle (optional)"
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                        />
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSaveEdit(cat)}
+                            disabled={!editName.trim() || isSavingEdit}
+                            className="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 disabled:opacity-50"
+                          >
+                            {isSavingEdit ? 'Saving...' : 'Save'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCancelEdit}
+                            className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:border-gray-400"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 ))

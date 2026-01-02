@@ -17,6 +17,7 @@ type CategoryRow = {
   id: string;
   name: string | null;
   slug: string | null;
+  description?: string | null;
   image_url?: string | null;
   hero_image_url?: string | null;
   image_id?: string | null;
@@ -28,6 +29,7 @@ type Category = {
   id: string;
   name: string;
   slug: string;
+  description?: string | null;
   imageUrl?: string;
   heroImageUrl?: string;
   showOnHomePage: boolean;
@@ -51,6 +53,7 @@ const createCategoriesTable = `
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     slug TEXT NOT NULL,
+    description TEXT,
     image_url TEXT,
     hero_image_url TEXT,
     image_id TEXT,
@@ -63,6 +66,7 @@ const createCategoriesTable = `
 const REQUIRED_CATEGORY_COLUMNS: Record<string, string> = {
   show_on_homepage: 'show_on_homepage INTEGER DEFAULT 0',
   slug: 'slug TEXT',
+  description: 'description TEXT',
   hero_image_url: 'hero_image_url TEXT',
   hero_image_id: 'hero_image_id TEXT',
   image_id: 'image_id TEXT',
@@ -99,7 +103,7 @@ export async function onRequestGet(context: {
 
     const { results } = await context.env.DB
       .prepare(
-        `SELECT id, name, slug, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories`
+        `SELECT id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories`
       )
       .all<CategoryRow>();
 
@@ -139,6 +143,7 @@ const mapRowToCategory = (row: CategoryRow, imageUrlMap: Map<string, string>): C
     id: row.id,
     name: featuredWorksName ? OTHER_ITEMS_CATEGORY.name : row.name,
     slug: row.slug,
+    description: row.description ?? null,
     imageUrl,
     heroImageUrl,
     showOnHomePage: row.show_on_homepage === 1,
@@ -199,9 +204,9 @@ async function seedDefaultCategories(db: D1Database) {
     const imageUrl = tile.imageUrl || null;
     await db
       .prepare(
-        `INSERT OR IGNORE INTO categories (id, name, slug, image_url, hero_image_url, show_on_homepage) VALUES (?, ?, ?, ?, ?, ?);`
+        `INSERT OR IGNORE INTO categories (id, name, slug, description, image_url, hero_image_url, show_on_homepage) VALUES (?, ?, ?, ?, ?, ?, ?);`
       )
-      .bind(id, name, slug, imageUrl, imageUrl, 1)
+      .bind(id, name, slug, null, imageUrl, imageUrl, 1)
       .run();
   }
 }
@@ -270,8 +275,8 @@ async function ensureOtherItemsCategory(db: D1Database) {
 
     const id = OTHER_ITEMS_CATEGORY.id || crypto.randomUUID();
     await db
-      .prepare(`INSERT INTO categories (id, name, slug, show_on_homepage) VALUES (?, ?, ?, 1);`)
-      .bind(id, OTHER_ITEMS_CATEGORY.name, OTHER_ITEMS_CATEGORY.slug)
+      .prepare(`INSERT INTO categories (id, name, slug, description, show_on_homepage) VALUES (?, ?, ?, ?, 1);`)
+      .bind(id, OTHER_ITEMS_CATEGORY.name, OTHER_ITEMS_CATEGORY.slug, null)
       .run();
     return id;
   } catch (error) {

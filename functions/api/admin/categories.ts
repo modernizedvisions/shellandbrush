@@ -18,6 +18,7 @@ type CategoryRow = {
   id: string;
   name: string | null;
   slug: string | null;
+  description?: string | null;
   image_url?: string | null;
   hero_image_url?: string | null;
   image_id?: string | null;
@@ -29,6 +30,7 @@ type Category = {
   id: string;
   name: string;
   slug: string;
+  description?: string | null;
   imageUrl?: string;
   heroImageUrl?: string;
   imageId?: string;
@@ -54,6 +56,7 @@ const createCategoriesTable = `
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     slug TEXT NOT NULL,
+    description TEXT,
     image_url TEXT,
     hero_image_url TEXT,
     image_id TEXT,
@@ -66,6 +69,7 @@ const createCategoriesTable = `
 const REQUIRED_CATEGORY_COLUMNS: Record<string, string> = {
   show_on_homepage: 'show_on_homepage INTEGER DEFAULT 0',
   slug: 'slug TEXT',
+  description: 'description TEXT',
   hero_image_url: 'hero_image_url TEXT',
   hero_image_id: 'hero_image_id TEXT',
   image_id: 'image_id TEXT',
@@ -130,7 +134,7 @@ export async function onRequest(context: {
 async function handleGet(db: D1Database, baseUrl: string): Promise<Response> {
   const { results } = await db
     .prepare(
-      `SELECT id, name, slug, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories`
+      `SELECT id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories`
     )
     .all<CategoryRow>();
   const rows = results || [];
@@ -149,6 +153,7 @@ async function handlePost(db: D1Database, request: Request, baseUrl: string): Pr
 
   const slug = toSlug(body?.slug || name);
   const id = crypto.randomUUID();
+  const description = body?.description ?? null;
   const showOnHomePage = !!body?.showOnHomePage;
   const imageUrl = body?.imageUrl || null;
   const heroImageUrl = body?.heroImageUrl || null;
@@ -172,17 +177,27 @@ async function handlePost(db: D1Database, request: Request, baseUrl: string): Pr
 
   const result = await db
     .prepare(
-      `INSERT INTO categories (id, name, slug, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?);`
+      `INSERT INTO categories (id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`
     )
-    .bind(id, name, slug, resolvedImageUrl, resolvedHeroImageUrl, imageId, heroImageId, showOnHomePage ? 1 : 0)
+    .bind(
+      id,
+      name,
+      slug,
+      description,
+      resolvedImageUrl,
+      resolvedHeroImageUrl,
+      imageId,
+      heroImageId,
+      showOnHomePage ? 1 : 0
+    )
     .run();
 
   if (!result.success) return json({ error: 'Failed to create category' }, 500);
 
   const created = await db
     .prepare(
-      `SELECT id, name, slug, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories WHERE id = ?;`
+      `SELECT id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories WHERE id = ?;`
     )
     .bind(id)
     .first<CategoryRow>();
@@ -212,6 +227,7 @@ async function handlePut(db: D1Database, request: Request, baseUrl: string): Pro
   };
 
   if (body.name !== undefined) addSet('name = ?', (body.name || '').trim());
+  if (body.description !== undefined) addSet('description = ?', body.description || null);
   if (body.slug !== undefined || body.name !== undefined) {
     const slugSource = body.slug || body.name;
     if (slugSource !== undefined) addSet('slug = ?', toSlug(slugSource));
@@ -258,7 +274,7 @@ async function handlePut(db: D1Database, request: Request, baseUrl: string): Pro
 
   const updated = await db
     .prepare(
-      `SELECT id, name, slug, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories WHERE id = ?;`
+      `SELECT id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories WHERE id = ?;`
     )
     .bind(id)
     .first<CategoryRow>();
@@ -333,6 +349,7 @@ const mapRowToCategory = (row: CategoryRow, imageUrlMap: Map<string, string>): C
     id: row.id,
     name: featuredWorksName ? OTHER_ITEMS_CATEGORY.name : row.name,
     slug: row.slug,
+    description: row.description ?? null,
     imageUrl,
     heroImageUrl,
     imageId: row.image_id || undefined,
@@ -396,10 +413,10 @@ async function seedDefaultCategories(db: D1Database) {
     const heroImageUrl = tile.imageUrl || null;
     await db
       .prepare(
-        `INSERT OR IGNORE INTO categories (id, name, slug, image_url, hero_image_url, show_on_homepage) VALUES (?, ?, ?, ?, ?, ?);`
-      )
-      .bind(id, name, slug, imageUrl, heroImageUrl, 1)
-      .run();
+      `INSERT OR IGNORE INTO categories (id, name, slug, description, image_url, hero_image_url, show_on_homepage) VALUES (?, ?, ?, ?, ?, ?, ?);`
+    )
+    .bind(id, name, slug, null, imageUrl, heroImageUrl, 1)
+    .run();
   }
 }
 
@@ -479,8 +496,8 @@ async function ensureOtherItemsCategory(db: D1Database) {
     const name = OTHER_ITEMS_CATEGORY.name;
     const slug = OTHER_ITEMS_CATEGORY.slug;
     await db
-      .prepare(`INSERT INTO categories (id, name, slug, show_on_homepage) VALUES (?, ?, ?, 1);`)
-      .bind(id, name, slug)
+      .prepare(`INSERT INTO categories (id, name, slug, description, show_on_homepage) VALUES (?, ?, ?, ?, 1);`)
+      .bind(id, name, slug, null)
       .run();
     return id;
   } catch (error) {

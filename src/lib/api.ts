@@ -128,11 +128,14 @@ export async function adminFetchCategories(): Promise<Category[]> {
   return Array.isArray(data.categories) ? (data.categories as Category[]) : [];
 }
 
-export async function adminCreateCategory(name: string): Promise<Category | null> {
+export async function adminCreateCategory(
+  name: string,
+  description?: string | null
+): Promise<Category | null> {
   const response = await adminFetch(ADMIN_CATEGORIES_PATH, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, description: description || null }),
   });
   if (!response.ok) throw new Error(`Create category failed: ${response.status}`);
   const data = await response.json();

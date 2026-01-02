@@ -39,9 +39,10 @@ function loadTikTokScript() {
 interface TikTokEmbedProps {
   videoId: string;
   citeUrl: string;
+  className?: string;
 }
 
-export function TikTokEmbed({ videoId, citeUrl }: TikTokEmbedProps) {
+export function TikTokEmbed({ videoId, citeUrl, className = '' }: TikTokEmbedProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -73,70 +74,21 @@ export function TikTokEmbed({ videoId, citeUrl }: TikTokEmbedProps) {
   }, [ready]);
 
   return (
-    <div ref={containerRef} className="w-full flex justify-center">
+    <div ref={containerRef} className={`w-full flex justify-center ${className}`.trim()}>
       <blockquote
         className="tiktok-embed"
         cite={citeUrl}
         data-video-id={videoId}
-        style={{ maxWidth: 605, minWidth: 280, width: '100%' }}
+        style={{ maxWidth: 605, minWidth: 280, width: '100%', margin: 0 }}
       >
         <section>
           <a
             target="_blank"
             rel="noreferrer noopener"
             title="@thechesapeakeshell"
-            href="https://www.tiktok.com/@thechesapeakeshell?refer=embed"
+            href={citeUrl}
           >
             @thechesapeakeshell
-          </a>
-          {' '}Packing up orders is as much fun for me as it is to make the orders!{' '}
-          <a
-            title="christmasornaments"
-            target="_blank"
-            rel="noreferrer noopener"
-            href="https://www.tiktok.com/tag/christmasornaments?refer=embed"
-          >
-            #christmasornaments
-          </a>{' '}
-          <a
-            title="shellart"
-            target="_blank"
-            rel="noreferrer noopener"
-            href="https://www.tiktok.com/tag/shellart?refer=embed"
-          >
-            #shellart
-          </a>{' '}
-          <a
-            title="crafttok"
-            target="_blank"
-            rel="noreferrer noopener"
-            href="https://www.tiktok.com/tag/crafttok?refer=embed"
-          >
-            #crafttok
-          </a>{' '}
-          <a
-            title="coastaldecor"
-            target="_blank"
-            rel="noreferrer noopener"
-            href="https://www.tiktok.com/tag/coastaldecor?refer=embed"
-          >
-            #coastaldecor
-          </a>{' '}
-          <a
-            title="handmadegifts"
-            target="_blank"
-            rel="noreferrer noopener"
-            href="https://www.tiktok.com/tag/handmadegifts?refer=embed"
-          >
-            #handmadegifts
-          </a>{' '}
-          <a
-            target="_blank"
-            rel="noreferrer noopener"
-            title="♬ Gabrielle (From Paris When It Sizzles) - Audrey Hepburn / Nelson Riddle"
-            href="https://www.tiktok.com/music/Gabrielle-From-Paris-When-It-Sizzles-239015199201030144?refer=embed"
-          >
-            ♬ Gabrielle (From Paris When It Sizzles) - Audrey Hepburn / Nelson Riddle
           </a>
         </section>
       </blockquote>

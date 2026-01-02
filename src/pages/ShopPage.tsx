@@ -5,6 +5,7 @@ import { Category, Product } from '../lib/types';
 import { ProductGrid } from '../components/ProductGrid';
 
 const BASE_CATEGORY_ORDER: Category[] = [
+  { id: 'other-items', name: 'Featured Works', slug: 'other-items', showOnHomePage: true },
   { id: 'ornaments', name: 'Ornaments', slug: 'ornaments', showOnHomePage: true },
   { id: 'ring-dish', name: 'Ring Dishes', slug: 'ring-dish', showOnHomePage: true },
   { id: 'decor', name: 'Decor', slug: 'decor', showOnHomePage: true },
@@ -275,19 +276,19 @@ const CATEGORY_COPY: Record<string, { title: string; description: string }> = {
   },
   'other-items': {
     title: 'FEATURED WORKS',
-    description: '',
+    description: 'Explore our collection of handcrafted shell art pieces, each uniquely designed and ready to find its perfect home',
   },
   'other items': {
     title: 'FEATURED WORKS',
-    description: '',
+    description: 'Explore our collection of handcrafted shell art pieces, each uniquely designed and ready to find its perfect home',
   },
   'featured-works': {
     title: 'FEATURED WORKS',
-    description: '',
+    description: 'Explore our collection of handcrafted shell art pieces, each uniquely designed and ready to find its perfect home',
   },
   'featured works': {
     title: 'FEATURED WORKS',
-    description: '',
+    description: 'Explore our collection of handcrafted shell art pieces, each uniquely designed and ready to find its perfect home',
   },
 };
 
@@ -428,15 +429,6 @@ export function ShopPage() {
   return (
     <div id="shop-top" className="py-12 bg-white min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mt-10 mb-6">
-          <h1 className="text-2xl md:text-3xl font-serif tracking-tight text-slate-900 uppercase">
-            FEATURED WORKS
-          </h1>
-          <p className="mt-2 text-sm md:text-base font-sans text-slate-600 uppercase">
-            Explore our collection of handcrafted shell art pieces, each uniquely designed and ready to find its perfect home
-          </p>
-        </div>
-
         <div className="flex flex-wrap justify-center gap-3 mb-8">
           {categoryList.map((category) => {
             const hasItems = (groupedProducts[category.slug] || []).length > 0;
@@ -479,22 +471,19 @@ export function ShopPage() {
                 CATEGORY_COPY[copyKey] ||
                 CATEGORY_COPY[(category.name || '').toLowerCase()] ||
                 null;
-              const skipHeader = isFeaturedWorksCategory(category);
-
+              const description = copy?.description ?? category.description ?? '';
               return (
                 <section key={category.slug} className="mb-10">
-                  {!skipHeader && (
-                    <div className="text-center mb-4">
-                      <h2 className="text-2xl md:text-3xl font-serif tracking-tight text-slate-900 uppercase">
-                        {copy?.title || category.name}
-                      </h2>
-                      {copy?.description && (
-                        <p className="mt-1 text-sm md:text-base font-sans text-slate-600 uppercase">
-                          {copy.description}
-                        </p>
-                      )}
-                    </div>
-                  )}
+                  <div className="text-center mb-4">
+                    <h2 className="text-2xl md:text-3xl font-serif tracking-tight text-slate-900 uppercase">
+                      {copy?.title || category.name}
+                    </h2>
+                    {description && (
+                      <p className="mt-1 text-sm md:text-base font-sans text-slate-600 uppercase">
+                        {description}
+                      </p>
+                    )}
+                  </div>
                   <ProductGrid products={items} />
                 </section>
               );

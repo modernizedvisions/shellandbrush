@@ -105,6 +105,7 @@ export interface Category {
   id: string;
   name: string;
   slug: string;
+  description?: string | null;
   imageUrl?: string;
   heroImageUrl?: string;
   imageId?: string;

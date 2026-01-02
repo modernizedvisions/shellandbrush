@@ -1,7 +1,13 @@
-const TIKTOK_EMBED_URL = 'https://www.tiktok.com/embed/v2/7534342632328138039';
+import { TikTokEmbed } from '../../components/TikTokEmbed';
+
+const TIKTOK_VIDEO_ID = '7534342632328138039';
+const TIKTOK_CITE_URL = 'https://www.tiktok.com/@thechesapeakeshell/video/7534342632328138039';
 const INSTAGRAM_EMBED_URL = 'https://www.instagram.com/reel/DOPL8YYAQsB/embed';
 
 export function SocialsSection() {
+  const embedBoxClass =
+    'w-full h-[620px] sm:h-[680px] md:h-[720px] lg:h-[760px] flex items-center justify-center overflow-hidden';
+
   return (
     <section className="py-16 md:py-20 border-t border-gray-100">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
@@ -21,15 +27,11 @@ export function SocialsSection() {
             >
               Follow on TikTok →
             </a>
-            <div className="w-full overflow-hidden h-[620px] sm:h-[680px] md:h-[720px] lg:h-[760px]">
-              <iframe
-                title="TikTok embed"
-                src={TIKTOK_EMBED_URL}
-                className="h-full w-full border-0"
-                loading="lazy"
-                allow="encrypted-media"
-                scrolling="no"
-                style={{ overflow: 'hidden' }}
+            <div className={embedBoxClass}>
+              <TikTokEmbed
+                videoId={TIKTOK_VIDEO_ID}
+                citeUrl={TIKTOK_CITE_URL}
+                className="max-w-[420px]"
               />
             </div>
           </div>
@@ -43,11 +45,11 @@ export function SocialsSection() {
             >
               Follow on Instagram →
             </a>
-            <div className="w-full overflow-hidden h-[620px] sm:h-[680px] md:h-[720px] lg:h-[760px]">
+            <div className={embedBoxClass}>
               <iframe
                 title="Instagram embed"
                 src={INSTAGRAM_EMBED_URL}
-                className="h-full w-full border-0"
+                className="h-full w-full max-w-[420px] border-0"
                 loading="lazy"
                 scrolling="no"
                 style={{ overflow: 'hidden' }}
