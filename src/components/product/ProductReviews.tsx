@@ -56,7 +56,7 @@ export function ProductReviews() {
         </div>
         <div className="text-right space-y-1">
           <div className="text-amber-500 text-lg leading-none">★★★★★</div>
-          <p className="text-xs text-slate-500">5.0 • Etsy reviews for Morgan</p>
+          <p className="text-xs text-slate-500">5.0 • Etsy reviews for Lauren</p>
         </div>
       </div>
 

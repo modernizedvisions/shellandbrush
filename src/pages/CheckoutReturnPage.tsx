@@ -75,11 +75,6 @@ export function CheckoutReturnPage() {
             <div className="md:col-span-2 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900">Order Summary</h2>
-                {session.currency && session.amountTotal != null && (
-                  <p className="text-sm text-gray-700 font-semibold">
-                    Order total: <span className="font-serif">{formatCurrency(session.amountTotal, session.currency)}</span>
-                  </p>
-                )}
               </div>
               <div className="divide-y divide-gray-200">
                 {session.lineItems && session.lineItems.length > 0 ? (

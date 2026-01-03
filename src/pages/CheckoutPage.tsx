@@ -355,7 +355,7 @@ export function CheckoutPage() {
                           <p className="text-xs text-gray-600 line-clamp-2">{item.description}</p>
                         )}
                         <p className="text-xs text-gray-500 mt-0.5">
-                          Qty: {item.quantity || 1} Ã— <span className="font-serif">{formatMoney(item.priceCents)}</span>
+                          Qty: {item.quantity || 1}
                         </p>
                       </div>
                     </div>

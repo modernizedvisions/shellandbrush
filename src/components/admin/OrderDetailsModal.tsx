@@ -176,7 +176,7 @@ export function OrderDetailsModal({ open, order, onClose }: OrderDetailsModalPro
                           {item.productName || item.productId || 'Item'}
                         </div>
                         <div className="text-xs text-slate-600">
-                          Qty: {item.quantity || 0} — {formatCurrency(item.priceCents)}
+                          Qty: {item.quantity || 0}
                         </div>
                       </div>
                     </div>

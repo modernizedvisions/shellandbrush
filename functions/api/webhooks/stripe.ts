@@ -1875,12 +1875,12 @@ async function insertStandardOrderAndItems(args: {
 
 function formatOrderDate(date: Date): string {
   try {
-    return date.toLocaleDateString('en-US', {
+    return new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/New_York',
       year: 'numeric',
       month: 'long',
       day: 'numeric',
-    });
+    }).format(date);
   } catch {
     return date.toISOString();
   }

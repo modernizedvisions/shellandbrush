@@ -495,22 +495,23 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
             </section>
 
             <aside className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-slate-800">Product Images</h4>
-                <button
-                  type="button"
-                  onClick={() => productImageFileInputRef.current?.click()}
-                  className="text-xs font-medium text-slate-700 border border-slate-300 rounded-full px-3 py-1 hover:bg-slate-50"
-                >
-                  Upload Images
-                </button>
-                <input
-                  ref={productImageFileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-slate-800">Product Images</h4>
+                  <button
+                    type="button"
+                    onClick={() => productImageFileInputRef.current?.click()}
+                    disabled={isUploading}
+                    className="text-xs font-medium text-slate-700 border border-slate-300 rounded-full px-3 py-1 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Upload Images
+                  </button>
+                  <input
+                    ref={productImageFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
                     console.debug('[shop images] handler fired', {
                       time: new Date().toISOString(),
                       hasEvent: !!e,
@@ -523,17 +524,34 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                       '[shop images] files extracted',
                       files.map((f) => ({ name: f.name, size: f.size, type: f.type }))
                     );
-                    if (files.length === 0) {
-                      console.warn('[shop images] no files found; aborting upload');
+                      if (files.length === 0) {
+                        console.warn('[shop images] no files found; aborting upload');
+                        if (e?.target) e.target.value = '';
+                        return;
+                      }
+                      if (isUploading) {
+                        if (e?.target) e.target.value = '';
+                        return;
+                      }
+                      onAddProductImages(files, activeProductSlot ?? undefined);
+                      setActiveProductSlot(null);
                       if (e?.target) e.target.value = '';
-                      return;
-                    }
-                    onAddProductImages(files, activeProductSlot ?? undefined);
-                    setActiveProductSlot(null);
-                    if (e?.target) e.target.value = '';
-                  }}
-                />
-              </div>
+                    }}
+                  />
+                </div>
+                {(isUploading || failedCount > 0) && (
+                  <div className="flex items-center gap-2 text-xs text-slate-600">
+                    {isUploading && (
+                      <>
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900" />
+                        <span>Uploading…</span>
+                      </>
+                    )}
+                    {!isUploading && failedCount > 0 && (
+                      <span className="text-red-600">Upload failed. Please try again.</span>
+                    )}
+                  </div>
+                )}
 
               <div className="grid grid-cols-2 gap-3">
                 {Array.from({ length: 4 }).map((_, index) => {
@@ -544,26 +562,36 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                         key={image.id}
                         className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-100 cursor-pointer"
                       onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const fileList = e.dataTransfer?.files;
-                        const files = Array.from(fileList ?? []);
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (isUploading) return;
+                          const fileList = e.dataTransfer?.files;
+                          const files = Array.from(fileList ?? []);
                         console.debug(
                           '[shop images] drop files extracted',
                           files.map((f) => ({ name: f.name, size: f.size, type: f.type }))
                         );
-                        if (files.length === 0) {
-                          console.warn('[shop images] no files found; aborting upload');
-                          return;
-                        }
-                        onAddProductImages(files, index);
-                      }}
+                          if (files.length === 0) {
+                            console.warn('[shop images] no files found; aborting upload');
+                            return;
+                          }
+                          onAddProductImages(files, index);
+                        }}
                         onClick={() => {
+                          if (isUploading) return;
                           setActiveProductSlot(index);
                           productImageFileInputRef.current?.click();
                         }}
                       >
                         <img src={image.previewUrl ?? image.url} alt={`Product image ${index + 1}`} className="h-full w-full object-cover" />
+                        {image.uploading && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-white/70">
+                            <div className="flex items-center gap-2 text-xs text-gray-700">
+                              <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900" />
+                              <span>Uploading…</span>
+                            </div>
+                          </div>
+                        )}
                         <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/40 px-2 py-1 text-xs text-white">
                           <button
                             type="button"
@@ -588,27 +616,29 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                       key={index}
                       className="flex items-center justify-center aspect-square rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400 cursor-pointer"
                       onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const fileList = e.dataTransfer?.files;
-                        const files = fileList ? Array.from(fileList) : [];
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (isUploading) return;
+                          const fileList = e.dataTransfer?.files;
+                          const files = fileList ? Array.from(fileList) : [];
                         console.debug(
                           '[shop images] drop files extracted',
                           files.map((f) => ({ name: f.name, size: f.size, type: f.type }))
                         );
-                        if (files.length === 0) {
-                          console.warn('[shop images] no files found; aborting upload');
-                          return;
-                        }
-                        onAddProductImages(files, index);
-                      }}
-                      onClick={() => {
-                        setActiveProductSlot(index);
-                        productImageFileInputRef.current?.click();
-                      }}
-                    >
-                      Empty slot
-                    </div>
+                          if (files.length === 0) {
+                            console.warn('[shop images] no files found; aborting upload');
+                            return;
+                          }
+                          onAddProductImages(files, index);
+                        }}
+                        onClick={() => {
+                          if (isUploading) return;
+                          setActiveProductSlot(index);
+                          productImageFileInputRef.current?.click();
+                        }}
+                      >
+                        Empty slot
+                      </div>
                   );
                 })}
               </div>
@@ -862,42 +892,54 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
 
                 <div className="grid grid-cols-2 gap-3">
                   {console.debug('[edit modal] render images', editImages)}
-                  {Array.from({ length: maxModalImages }).map((_, idx) => {
-                    const image = editImages[idx];
-                    if (image) {
-                      return (
-                        <div key={image.id} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
-                          <img src={image.previewUrl ?? image.url} alt={`Edit image ${idx + 1}`} className="h-full w-full object-cover" />
-                          <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/40 px-2 py-1 text-xs text-white">
-                            <button
-                              type="button"
-                              onClick={() => handleSetPrimaryModalImage(image.id)}
-                              className={`px-2 py-1 rounded ${image.isPrimary ? 'bg-white text-slate-900' : 'bg-black/30 text-white'}`}
-                            >
-                              {image.isPrimary ? 'Primary' : 'Set primary'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveModalImage(image.id)}
-                              className="text-red-100 hover:text-red-300"
-                            >
-                              Remove
-                            </button>
+                    {Array.from({ length: maxModalImages }).map((_, idx) => {
+                      const image = editImages[idx];
+                      if (image) {
+                        return (
+                          <div key={image.id} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
+                            <img src={image.previewUrl ?? image.url} alt={`Edit image ${idx + 1}`} className="h-full w-full object-cover" />
+                            {image.uploading && (
+                              <div className="absolute inset-0 flex items-center justify-center bg-white/70">
+                                <div className="flex items-center gap-2 text-xs text-gray-700">
+                                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900" />
+                                  <span>Uploading…</span>
+                                </div>
+                              </div>
+                            )}
+                            <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/40 px-2 py-1 text-xs text-white">
+                              <button
+                                type="button"
+                                onClick={() => handleSetPrimaryModalImage(image.id)}
+                                className={`px-2 py-1 rounded ${image.isPrimary ? 'bg-white text-slate-900' : 'bg-black/30 text-white'}`}
+                              >
+                                {image.isPrimary ? 'Primary' : 'Set primary'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveModalImage(image.id)}
+                                className="text-red-100 hover:text-red-300"
+                              >
+                                Remove
+                              </button>
+                            </div>
                           </div>
-                        </div>
+                        );
+                      }
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          disabled={isUploading}
+                          onClick={() => {
+                            if (isUploading) return;
+                            editProductImageFileInputRef.current?.click();
+                          }}
+                          className="flex items-center justify-center aspect-square rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          Upload
+                        </button>
                       );
-                    }
-                    return (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => editProductImageFileInputRef.current?.click()}
-                        className="flex items-center justify-center aspect-square rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400"
-                      >
-                        Upload
-                      </button>
-                    );
-                  })}
+                    })}
                 </div>
               </div>
             </div>

@@ -7,7 +7,7 @@ export function HomeContactSection() {
         <h2 className="text-3xl md:text-4xl font-serif font-semibold text-gray-900">
           CONTACT
         </h2>
-        <p className="mt-3 text-sm md:text-base text-gray-600">
+        <p className="mt-3 text-sm md:text-base text-gray-600 uppercase">
           For commissions, custom orders and questions, send a note below. I'd love to hear from you.
         </p>
       </div>
