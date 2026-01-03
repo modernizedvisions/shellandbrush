@@ -46,6 +46,8 @@ type Env = {
   PUBLIC_SITE_URL?: string;
   VITE_PUBLIC_SITE_URL?: string;
   PUBLIC_IMAGES_BASE_URL?: string;
+  DEBUG_STRIPE_WEBHOOK?: string;
+  EMAIL_DEBUG?: string;
 };
 
 const createStripeClient = (secretKey: string) =>
@@ -55,6 +57,14 @@ const createStripeClient = (secretKey: string) =>
   });
 
 const cryptoProvider = Stripe.createSubtleCryptoProvider();
+
+const isShippingLine = (lineItem: Stripe.LineItem) => isShippingLineItem(lineItem);
+
+const getLineItemTotalCents = (lineItem: Stripe.LineItem): number => {
+  const quantity = lineItem.quantity ?? 1;
+  const total = lineItem.amount_total ?? (lineItem.price?.unit_amount ?? 0) * quantity;
+  return Math.round(Number(total || 0));
+};
 
 export const onRequestPost = async (context: {
   request: Request;
@@ -218,6 +228,47 @@ export const onRequestPost = async (context: {
           ? shippingFromMetadata
           : 0;
       const shippingCents = Number.isFinite(inferredShipping) ? Math.max(0, Number(inferredShipping)) : 0;
+      const debugStripeWebhook = !!(env.DEBUG_STRIPE_WEBHOOK || env.EMAIL_DEBUG);
+
+      if (debugStripeWebhook && (customOrderId || customSource)) {
+        const lineItems = rawLineItems.map((line) => {
+          const productObj =
+            line.price?.product && typeof line.price.product !== 'string'
+              ? (line.price.product as Stripe.Product)
+              : null;
+          const mvLineType =
+            (line.metadata as any)?.mv_line_type ||
+            (line.price as any)?.metadata?.mv_line_type ||
+            productObj?.metadata?.mv_line_type ||
+            null;
+          const label =
+            line.description ||
+            productObj?.name ||
+            (line.price as any)?.product_data?.name ||
+            '';
+          return {
+            name: label,
+            amount_total: line.amount_total ?? null,
+            mv_line_type: mvLineType,
+          };
+        });
+        const subtotalFromLines = rawLineItems.reduce((sum, line) => {
+          if (isShippingLine(line)) return sum;
+          return sum + getLineItemTotalCents(line);
+        }, 0);
+        const shippingFromLineItems = rawLineItems.reduce((sum, line) => {
+          if (!isShippingLine(line)) return sum;
+          return sum + getLineItemTotalCents(line);
+        }, 0);
+        console.log('[stripe webhook] custom order shipping debug', {
+          sessionId: session.id,
+          customOrderId,
+          lineItems,
+          subtotalCents: subtotalFromLines,
+          shippingCents: shippingFromLineItems,
+          totalCents: subtotalFromLines + shippingFromLineItems,
+        });
+      }
 
       if (invoiceId) {
         await handleCustomInvoicePayment({
@@ -247,7 +298,7 @@ export const onRequestPost = async (context: {
         const lineItems = rawLineItems;
         const aggregate: Record<string, number> = {};
         for (const line of lineItems) {
-          if (isShippingLineItem(line)) continue;
+          if (isShippingLine(line)) continue;
           const productIdFromPrice =
             typeof line.price?.product === 'string'
               ? line.price.product

@@ -5,8 +5,10 @@ type LineItemLike = Pick<Stripe.LineItem, 'description' | 'amount_total' | 'quan
   metadata?: Record<string, string> | null;
 };
 
-const includesShipping = (value?: string | null) =>
-  typeof value === 'string' && value.toLowerCase().includes('shipping');
+const normalizeLabel = (value?: string | null) =>
+  typeof value === 'string' ? value.trim().toLowerCase() : '';
+
+const isExactShippingLabel = (value?: string | null) => normalizeLabel(value) === 'shipping';
 
 const getProductName = (line: LineItemLike): string => {
   const price = line.price as Stripe.Price | null | undefined;
@@ -23,23 +25,23 @@ const getProductName = (line: LineItemLike): string => {
 
 const hasShippingMetadata = (line: LineItemLike): boolean => {
   const lineMeta = line.metadata || {};
-  if (lineMeta.mv_line_type === 'shipping') return true;
+  if (isExactShippingLabel(lineMeta.mv_line_type)) return true;
   const priceMeta = (line.price as any)?.metadata || {};
-  if (priceMeta.mv_line_type === 'shipping') return true;
+  if (isExactShippingLabel(priceMeta.mv_line_type)) return true;
   const productMeta =
     line.price?.product && typeof line.price.product !== 'string'
       ? (line.price.product as Stripe.Product).metadata || {}
       : {};
-  return productMeta?.mv_line_type === 'shipping';
+  return isExactShippingLabel(productMeta?.mv_line_type);
 };
 
 export const isShippingLineItem = (line: LineItemLike): boolean => {
   if (hasShippingMetadata(line)) return true;
-  if (includesShipping(line.description || '')) return true;
+  if (isExactShippingLabel(line.description || '')) return true;
   const productName = getProductName(line);
-  if (includesShipping(productName)) return true;
+  if (isExactShippingLabel(productName)) return true;
   const productDataName = (line.price as any)?.product_data?.name;
-  if (includesShipping(productDataName)) return true;
+  if (isExactShippingLabel(productDataName)) return true;
   return false;
 };
 
