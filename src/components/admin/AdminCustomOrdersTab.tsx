@@ -274,10 +274,18 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
         )}
       </div>
 
-      <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
-        {selectedOrder && (
-          <DialogContent className="w-full max-w-2xl max-h-[85vh] rounded-2xl bg-white shadow-xl border border-slate-100 p-0 overflow-hidden flex flex-col">
-            <div className="sticky top-0 z-10 bg-white border-b border-slate-100 px-6 py-4 flex items-start justify-between">
+      {isViewOpen && selectedOrder && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-3 py-6">
+          <div className="relative w-full max-w-xl rounded-2xl bg-white shadow-xl border border-slate-100 p-6">
+            <button
+              type="button"
+              onClick={closeView}
+              className="absolute right-3 top-3 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+            >
+              CLOSE
+            </button>
+
+            <div className="space-y-5">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-1">Custom Order</p>
                 <div className="text-xl font-semibold text-slate-900">
@@ -287,16 +295,7 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                   Placed {safeDate(selectedOrder.createdAt || selectedOrder.created_at)}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={closeView}
-                className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
-              >
-                CLOSE
-              </button>
-            </div>
 
-            <div className="flex-1 overflow-y-auto px-6 py-5">
               <div className="grid grid-cols-1 gap-4">
                 <section className="rounded-lg border border-slate-200 p-4">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-1.5">Customer</p>
@@ -378,16 +377,16 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                 <section className="rounded-lg border border-slate-200 p-4">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-2">Image</p>
                   <div className="flex flex-col gap-3">
-                    <div className="h-56 sm:h-64 md:h-72 w-full overflow-hidden rounded-lg bg-slate-50 border border-slate-200">
+                    <div className="h-10 w-10 rounded-md bg-slate-100 border border-slate-200 overflow-hidden">
                       {selectedOrder.imageUrl ? (
                         <img
                           src={selectedOrder.imageUrl}
                           alt="Custom order"
-                          className="h-full w-full object-contain"
+                          className="h-full w-full object-cover"
                         />
                       ) : (
-                        <div className="h-full w-full flex items-center justify-center text-sm text-slate-500">
-                          No image uploaded.
+                        <div className="h-full w-full flex items-center justify-center text-[10px] text-slate-500">
+                          N/A
                         </div>
                       )}
                     </div>
@@ -457,9 +456,9 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                 </section>
               </div>
             </div>
-          </DialogContent>
-        )}
-      </Dialog>
+          </div>
+        </div>
+      )}
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent>
