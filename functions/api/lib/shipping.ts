@@ -10,6 +10,9 @@ const normalizeLabel = (value?: string | null) =>
 
 const isExactShippingLabel = (value?: string | null) => normalizeLabel(value) === 'shipping';
 
+const containsShippingLabel = (value?: string | null) =>
+  normalizeLabel(value).includes('shipping');
+
 const getProductName = (line: LineItemLike): string => {
   const price = line.price as Stripe.Price | null | undefined;
   const productObj =
@@ -37,7 +40,9 @@ const hasShippingMetadata = (line: LineItemLike): boolean => {
 
 export const isShippingLineItem = (line: LineItemLike): boolean => {
   if (hasShippingMetadata(line)) return true;
-  if (isExactShippingLabel(line.description || '')) return true;
+  if (containsShippingLabel(line.description || '')) return true;
+  const priceNickname = (line.price as any)?.nickname;
+  if (containsShippingLabel(priceNickname)) return true;
   const productName = getProductName(line);
   if (isExactShippingLabel(productName)) return true;
   const productDataName = (line.price as any)?.product_data?.name;

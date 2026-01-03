@@ -14,11 +14,9 @@ import {
 } from '../../_lib/ownerNewSaleEmail';
 import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
 import { normalizePublicImageUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
-import { resolveCustomEmailTotals, resolveStandardEmailTotals } from '../../_lib/emailTotals';
 import {
   extractShippingCentsFromLineItems,
   filterNonShippingLineItems,
-  isShippingLineItem,
 } from '../lib/shipping';
 
 type D1PreparedStatement = {
@@ -58,7 +56,48 @@ const createStripeClient = (secretKey: string) =>
 
 const cryptoProvider = Stripe.createSubtleCryptoProvider();
 
-const isShippingLine = (lineItem: Stripe.LineItem) => isShippingLineItem(lineItem);
+const normalizeShippingLabel = (value?: string | null) =>
+  typeof value === 'string' ? value.trim().toLowerCase() : '';
+
+const isExactShippingLabel = (value?: string | null) => normalizeShippingLabel(value) === 'shipping';
+
+const containsShippingLabel = (value?: string | null) =>
+  normalizeShippingLabel(value).includes('shipping');
+
+const getLineItemLabel = (line: Stripe.LineItem): string =>
+  line.description ||
+  ((line.price?.product && typeof line.price.product !== 'string'
+    ? (line.price.product as Stripe.Product).name
+    : null) as string | null) ||
+  (line.price as any)?.product_data?.name ||
+  (line.price as any)?.nickname ||
+  '';
+
+const getShippingMatchSignals = (line: Stripe.LineItem): string[] => {
+  const signals: string[] = [];
+  const lineMeta = (line.metadata as any) || {};
+  if (isExactShippingLabel(lineMeta?.mv_line_type)) signals.push('line.metadata.mv_line_type');
+  const priceMeta = (line.price as any)?.metadata || {};
+  if (isExactShippingLabel(priceMeta?.mv_line_type)) signals.push('price.metadata.mv_line_type');
+  const productMeta =
+    line.price?.product && typeof line.price.product !== 'string'
+      ? (line.price.product as Stripe.Product).metadata || {}
+      : {};
+  if (isExactShippingLabel((productMeta as any)?.mv_line_type)) signals.push('product.metadata.mv_line_type');
+  if (containsShippingLabel(line.description || '')) signals.push('description');
+  const priceNickname = (line.price as any)?.nickname;
+  if (containsShippingLabel(priceNickname)) signals.push('price.nickname');
+  const productName =
+    line.price?.product && typeof line.price.product !== 'string'
+      ? (line.price.product as Stripe.Product).name
+      : null;
+  if (isExactShippingLabel(productName)) signals.push('product.name');
+  const productDataName = (line.price as any)?.product_data?.name;
+  if (isExactShippingLabel(productDataName)) signals.push('price.product_data.name');
+  return signals;
+};
+
+const isShippingLine = (lineItem: Stripe.LineItem) => getShippingMatchSignals(lineItem).length > 0;
 
 const getLineItemTotalCents = (lineItem: Stripe.LineItem): number => {
   const quantity = lineItem.quantity ?? 1;
@@ -230,6 +269,44 @@ export const onRequestPost = async (context: {
       const shippingCents = Number.isFinite(inferredShipping) ? Math.max(0, Number(inferredShipping)) : 0;
       const debugStripeWebhook = !!(env.DEBUG_STRIPE_WEBHOOK || env.EMAIL_DEBUG);
 
+      const shippingSignalMatches = rawLineItems
+        .map((line) => {
+          const signals = getShippingMatchSignals(line);
+          if (!signals.length) return null;
+          return {
+            name: getLineItemLabel(line),
+            signals,
+          };
+        })
+        .filter(Boolean) as { name: string; signals: string[] }[];
+
+      const shippingLineItems = rawLineItems.filter(isShippingLine);
+      const nonShippingLineItems = rawLineItems.filter((line) => !isShippingLine(line));
+      const itemsSubtotalFromLines = nonShippingLineItems.reduce(
+        (sum, line) => sum + getLineItemTotalCents(line),
+        0
+      );
+      const shippingFromLines = shippingLineItems.reduce(
+        (sum, line) => sum + getLineItemTotalCents(line),
+        0
+      );
+      const amountShippingFromStripe = (session.total_details as any)?.amount_shipping;
+      const amountShippingStripe = Number(amountShippingFromStripe);
+      const hasAmountShipping =
+        amountShippingFromStripe !== null &&
+        amountShippingFromStripe !== undefined &&
+        Number.isFinite(amountShippingStripe);
+      const shippingCentsForEmail =
+        hasAmountShipping && (amountShippingStripe > 0 || shippingFromLines === 0)
+          ? Math.max(0, amountShippingStripe)
+          : shippingFromLines;
+      const totalCentsForEmail =
+        session.amount_total ?? itemsSubtotalFromLines + shippingCentsForEmail;
+      const itemsSubtotalCents =
+        nonShippingLineItems.length > 0
+          ? itemsSubtotalFromLines
+          : session.amount_subtotal ?? Math.max(0, totalCentsForEmail - shippingCentsForEmail);
+
       if (debugStripeWebhook && (customOrderId || customSource)) {
         const lineItems = rawLineItems.map((line) => {
           const productObj =
@@ -267,6 +344,20 @@ export const onRequestPost = async (context: {
           subtotalCents: subtotalFromLines,
           shippingCents: shippingFromLineItems,
           totalCents: subtotalFromLines + shippingFromLineItems,
+        });
+      }
+
+      if (debugStripeWebhook) {
+        console.log('[stripe webhook] email totals debug', {
+          sessionId: session.id,
+          amount_subtotal: session.amount_subtotal ?? null,
+          amount_total: session.amount_total ?? null,
+          amount_shipping: (session.total_details as any)?.amount_shipping ?? null,
+          itemsSubtotalCents,
+          shippingCents: shippingCentsForEmail,
+          totalCents: totalCentsForEmail,
+          shippingLineCount: shippingLineItems.length,
+          shippingSignals: shippingSignalMatches,
         });
       }
 
@@ -364,11 +455,11 @@ export const onRequestPost = async (context: {
           imageUrl: item.imageUrl || undefined,
         }));
 
-        const totalsForEmail = resolveStandardEmailTotals({
-          session,
-          shippingCentsFromContext: shippingCents,
-          lineItems: rawLineItems,
-        });
+        const totalsForEmail = {
+          subtotalCents: itemsSubtotalCents,
+          shippingCents: shippingCentsForEmail,
+          totalCents: totalCentsForEmail,
+        };
         console.log('[email totals raw]', {
           kind: 'shop_customer',
           orderId: insertResult.orderId,
@@ -453,11 +544,11 @@ export const onRequestPost = async (context: {
           imageUrl: item.imageUrl || undefined,
         }));
 
-        const totalsForEmail = resolveStandardEmailTotals({
-          session,
-          shippingCentsFromContext: shippingCents,
-          lineItems: rawLineItems,
-        });
+        const totalsForEmail = {
+          subtotalCents: itemsSubtotalCents,
+          shippingCents: shippingCentsForEmail,
+          totalCents: totalCentsForEmail,
+        };
         console.log('[email totals raw]', {
           kind: 'shop_owner',
           orderId: insertResult.orderId,
@@ -1373,15 +1464,11 @@ async function handleCustomOrderPayment(args: {
       ? `${siteUrlForConfirmation}/checkout/return?session_id=${session.id}`
       : `/checkout/return?session_id=${session.id}`;
     const orderDate = formatOrderDate(new Date());
-    const totalsForEmail = resolveCustomEmailTotals({
-      order: {
-        total_cents: totalCents,
-        amount_cents: totalCents,
-        shipping_cents: shippingCents,
-      },
-      shippingCentsFromContext: shippingCents,
-      session,
-    });
+    const totalsForEmail = {
+      subtotalCents: Math.max(0, amount),
+      shippingCents,
+      totalCents,
+    };
     console.log('[email totals raw]', {
       kind: 'custom_customer',
       orderId: insertResult.orderId,
@@ -1468,15 +1555,11 @@ async function handleCustomOrderPayment(args: {
       imageUrl: customOrderImageUrl || null,
     },
   ];
-  const totalsForOwner = resolveCustomEmailTotals({
-    order: {
-      total_cents: totalCents,
-      amount_cents: totalCents,
-      shipping_cents: shippingCents,
-    },
-    shippingCentsFromContext: shippingCents,
-    session,
-  });
+  const totalsForOwner = {
+    subtotalCents: Math.max(0, amount),
+    shippingCents,
+    totalCents,
+  };
   console.log('[email totals raw]', {
     kind: 'custom_owner',
     orderId: insertResult.orderId,
