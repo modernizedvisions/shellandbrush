@@ -252,7 +252,7 @@ export const onRequestPost = async (context: {
       const customOrderId = session.metadata?.customOrderId;
       const customSource = session.metadata?.source === 'custom_order';
       const rawLineItems = session.line_items?.data || [];
-                  const shippingCentsFromStripe = (session.total_details as any)?.amount_shipping ?? null;
+      const shippingCentsFromStripe = (session.total_details as any)?.amount_shipping ?? null;
       const amountShipping = Number(shippingCentsFromStripe);
       const hasStripeShipping = shippingCentsFromStripe !== null && shippingCentsFromStripe !== undefined;
       const shippingFromLineItems = extractShippingCentsFromLineItems(rawLineItems);
@@ -306,6 +306,10 @@ export const onRequestPost = async (context: {
         nonShippingLineItems.length > 0
           ? itemsSubtotalFromLines
           : session.amount_subtotal ?? Math.max(0, totalCentsForEmail - shippingCentsForEmail);
+      const isShopOrder = !invoiceId && !customOrderId && !customSource;
+      const shippingAddressText = formatShippingAddress(shippingAddress);
+      const billingAddressText = formatShippingAddress(firstCharge?.billing_details?.address || null);
+      const paymentMethodLabel = formatPaymentMethodLabel(cardBrand, cardLast4);
 
       if (debugStripeWebhook && (customOrderId || customSource)) {
         const lineItems = rawLineItems.map((line) => {
@@ -359,6 +363,15 @@ export const onRequestPost = async (context: {
           shippingLineCount: shippingLineItems.length,
           shippingSignals: shippingSignalMatches,
         });
+        if (isShopOrder) {
+          console.log('[stripe webhook] shop order debug', {
+            sessionId: session.id,
+            paymentIntentId,
+            customerEmail,
+            amount_total: session.amount_total ?? null,
+            metadata: session.metadata || {},
+          });
+        }
       }
 
       if (invoiceId) {
@@ -473,10 +486,6 @@ export const onRequestPost = async (context: {
           siteUrl ? `${siteUrl}/checkout/return?session_id=${session.id}` : `/checkout/return?session_id=${session.id}`;
         const orderLabel = insertResult.displayOrderId || insertResult.orderId;
         const orderDate = formatOrderDate(new Date());
-        const shippingAddressText = formatShippingAddress(shippingAddress);
-        const billingAddressText = formatShippingAddress(firstCharge?.billing_details?.address || null);
-        const paymentMethodLabel = formatPaymentMethodLabel(cardBrand, cardLast4);
-
         try {
           const html = renderOrderConfirmationEmailHtml({
             brandName: 'Shell & Brush',
@@ -533,8 +542,8 @@ export const onRequestPost = async (context: {
         return new Response('ok', { status: 200 });
       }
 
-      if (insertResult && !invoiceId && !customOrderId && !customSource) {
-        const orderLabel = insertResult.displayOrderId || insertResult.orderId;
+      if (isShopOrder) {
+        const orderLabel = insertResult?.displayOrderId || insertResult?.orderId || session.id;
         const confirmationItems: OwnerNewSaleItem[] = (
           await mapLineItemsToEmailItems(env.DB, rawLineItems, session.currency || 'usd', imageBaseUrl)
         ).map((item) => ({
@@ -567,6 +576,15 @@ export const onRequestPost = async (context: {
         const orderDate = formatOrderDate(new Date());
 
         try {
+          if (debugStripeWebhook) {
+            console.log('[stripe webhook] owner email send start', {
+              sessionId: session.id,
+              orderLabel,
+              ownerTo,
+              htmlLen: undefined,
+              textLen: undefined,
+            });
+          }
           const html = renderOwnerNewSaleEmailHtml({
             orderNumber: orderLabel,
             orderDate,
@@ -602,6 +620,16 @@ export const onRequestPost = async (context: {
             stripeUrl,
           });
 
+          if (debugStripeWebhook) {
+            console.log('[stripe webhook] owner email payload', {
+              sessionId: session.id,
+              orderLabel,
+              ownerTo,
+              subject: `NEW SALE - Shell & Brush (${orderLabel})`,
+              htmlLen: html.length,
+              textLen: text.length,
+            });
+          }
           const emailResult = await sendEmail(
             {
               to: ownerTo,
@@ -611,6 +639,14 @@ export const onRequestPost = async (context: {
             },
             env
           );
+          if (debugStripeWebhook) {
+            console.log('[stripe webhook] owner email send result', {
+              sessionId: session.id,
+              orderLabel,
+              ok: emailResult.ok,
+              error: emailResult.ok ? undefined : emailResult.error,
+            });
+          }
           if (!emailResult.ok) {
             console.error('[stripe webhook] owner receipt email failed', emailResult.error);
           }
