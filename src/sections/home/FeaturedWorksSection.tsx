@@ -24,7 +24,8 @@ export function FeaturedWorksSection() {
     loadProducts();
   }, []);
 
-  const featured = useMemo(() => products.slice(0, 3), [products]);
+  const featuredDesktop = useMemo(() => products.slice(0, 3), [products]);
+  const featuredMobile = useMemo(() => products.slice(0, 4), [products]);
 
   return (
     <section id="featured" className="py-16 md:py-20 border-t border-gray-100">
@@ -37,12 +38,19 @@ export function FeaturedWorksSection() {
 
         {isLoading ? (
           <div className="text-center py-8 text-gray-500">Loading featured works...</div>
-        ) : featured.length ? (
-          <div className="grid gap-8 md:grid-cols-3">
-            {featured.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
+        ) : featuredDesktop.length ? (
+          <>
+            <div className="grid grid-cols-2 gap-4 md:hidden">
+              {featuredMobile.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+            <div className="hidden md:grid gap-8 md:grid-cols-3">
+              {featuredDesktop.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+          </>
         ) : (
           <div className="text-center py-8 text-gray-500">No featured works available yet.</div>
         )}

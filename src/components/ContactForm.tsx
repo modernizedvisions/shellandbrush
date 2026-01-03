@@ -3,6 +3,13 @@ import { useEffect, useState } from 'react';
 interface ContactFormProps {
   heading?: string;
   subheading?: string;
+  namePlaceholder?: string;
+  emailPlaceholder?: string;
+  messagePlaceholder?: string;
+  submitLabel?: string;
+  successMessage?: string;
+  errorMessage?: string;
+  showServerError?: boolean;
   showHeading?: boolean;
   useDefaultBackground?: boolean;
   sectionClassName?: string;
@@ -13,6 +20,13 @@ interface ContactFormProps {
 export function ContactForm({
   heading = 'Get In Touch',
   subheading = 'Have an idea or a question? Reach out below.',
+  namePlaceholder = '',
+  emailPlaceholder = '',
+  messagePlaceholder = "Tell us what you're looking for - custom ideas, questions, or details.",
+  submitLabel = 'Send Message',
+  successMessage = "Thank you for your message! We'll get back to you soon.",
+  errorMessage = 'There was an error sending your message. Please try again.',
+  showServerError = true,
   showHeading = true,
   useDefaultBackground = true,
   sectionClassName = '',
@@ -154,6 +168,7 @@ export function ContactForm({
                 required
                 value={formData.name}
                 onChange={handleChange}
+                placeholder={namePlaceholder}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
               />
             </div>
@@ -168,6 +183,7 @@ export function ContactForm({
                 required
                 value={formData.email}
                 onChange={handleChange}
+                placeholder={emailPlaceholder}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
               />
             </div>
@@ -182,7 +198,7 @@ export function ContactForm({
                 rows={5}
                 value={formData.message}
                 onChange={handleChange}
-                placeholder="Tell us what you're looking for - custom ideas, questions, or details."
+                placeholder={messagePlaceholder}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent resize-none"
               />
             </div>
@@ -220,13 +236,13 @@ export function ContactForm({
 
             {submitStatus === 'success' && (
               <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm">
-                Thank you for your message! We'll get back to you soon.
+                {successMessage}
               </div>
             )}
 
             {submitStatus === 'error' && (
               <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
-                {submitError || 'There was an error sending your message. Please try again.'}
+                {showServerError && submitError ? submitError : errorMessage}
               </div>
             )}
 
@@ -235,7 +251,7 @@ export function ContactForm({
               disabled={isSubmitting}
               className="w-full bg-gray-900 text-white py-3 px-6 rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isSubmitting ? 'Sending...' : 'Send Message'}
+              {isSubmitting ? 'Sending...' : submitLabel}
             </button>
           </form>
         </div>
