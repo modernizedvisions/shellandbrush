@@ -22,6 +22,9 @@ type CustomOrderRow = {
   message_id: string | null;
   status: string | null;
   payment_link: string | null;
+  image_url?: string | null;
+  image_key?: string | null;
+  image_updated_at?: string | null;
   shipping_name?: string | null;
   shipping_line1?: string | null;
   shipping_line2?: string | null;
@@ -56,7 +59,7 @@ export async function onRequestGet(context: { env: { DB: D1Database; ADMIN_PASSW
     const statement = context.env.DB.prepare(
       `SELECT id, display_custom_order_id, customer_name, ${
         emailCol ? `${emailCol} AS customer_email` : 'NULL AS customer_email'
-      }, description, amount, message_id, status, payment_link,
+      }, description, amount, message_id, status, payment_link, image_url, image_key, image_updated_at,
         shipping_name, shipping_line1, shipping_line2, shipping_city, shipping_state, shipping_postal_code, shipping_country, shipping_phone,
         paid_at, created_at
        FROM custom_orders
@@ -187,6 +190,9 @@ async function ensureCustomOrdersSchema(db: D1Database) {
     stripe_session_id TEXT,
     stripe_payment_intent_id TEXT,
     paid_at TEXT,
+    image_url TEXT,
+    image_key TEXT,
+    image_updated_at TEXT,
     shipping_name TEXT,
     shipping_line1 TEXT,
     shipping_line2 TEXT,
@@ -216,6 +222,15 @@ async function ensureCustomOrdersSchema(db: D1Database) {
   }
   if (!names.includes('paid_at')) {
     await db.prepare(`ALTER TABLE custom_orders ADD COLUMN paid_at TEXT;`).run();
+  }
+  if (!names.includes('image_url')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN image_url TEXT;`).run();
+  }
+  if (!names.includes('image_key')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN image_key TEXT;`).run();
+  }
+  if (!names.includes('image_updated_at')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN image_updated_at TEXT;`).run();
   }
   const shippingColumns = [
     'shipping_name',
@@ -274,6 +289,9 @@ function mapRow(row: CustomOrderRow) {
     messageId: row.message_id ?? null,
     status: (row.status as 'pending' | 'paid') ?? 'pending',
     paymentLink: row.payment_link ?? null,
+    imageUrl: row.image_url ?? null,
+    imageKey: row.image_key ?? null,
+    imageUpdatedAt: row.image_updated_at ?? null,
     createdAt: row.created_at ?? null,
     paidAt: row.paid_at ?? null,
     shippingAddress,

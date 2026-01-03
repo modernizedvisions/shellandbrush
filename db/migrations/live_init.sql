@@ -120,6 +120,9 @@ CREATE TABLE IF NOT EXISTS custom_orders (
   stripe_session_id TEXT,
   stripe_payment_intent_id TEXT,
   paid_at TEXT,
+  image_url TEXT,
+  image_key TEXT,
+  image_updated_at TEXT,
   shipping_name TEXT,
   shipping_line1 TEXT,
   shipping_line2 TEXT,
@@ -200,6 +203,22 @@ CREATE TABLE IF NOT EXISTS gallery_images (
 
 CREATE INDEX IF NOT EXISTS idx_gallery_images_sort_order ON gallery_images(sort_order);
 CREATE INDEX IF NOT EXISTS idx_gallery_images_created_at ON gallery_images(created_at);
+
+CREATE TABLE IF NOT EXISTS gallery_items (
+  id TEXT PRIMARY KEY,
+  source_type TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  image_url TEXT,
+  title TEXT,
+  hidden INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  sold_at TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gallery_items_source ON gallery_items(source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_gallery_items_status ON gallery_items(status);
+CREATE INDEX IF NOT EXISTS idx_gallery_items_created_at ON gallery_items(created_at);
 
 -- Site config
 CREATE TABLE IF NOT EXISTS site_config (

@@ -60,5 +60,8 @@ CREATE TABLE IF NOT EXISTS custom_orders (
   message_id TEXT,
   status TEXT DEFAULT 'pending',
   payment_link TEXT,
+  image_url TEXT,
+  image_key TEXT,
+  image_updated_at TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
