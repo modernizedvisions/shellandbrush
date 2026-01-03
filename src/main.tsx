@@ -10,6 +10,7 @@ import { CheckoutPage } from './pages/CheckoutPage';
 import { CheckoutReturnPage } from './pages/CheckoutReturnPage';
 import { AdminPage } from './pages/AdminPage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toaster } from 'sonner';
 import './index.css';
 
@@ -19,7 +20,14 @@ createRoot(document.getElementById('root')!).render(
       <Routes>
         <Route path="/" element={<SiteLayout />}>
           <Route index element={<HomePage />} />
-          <Route path="shop" element={<ShopPage />} />
+          <Route
+            path="shop"
+            element={
+              <ErrorBoundary>
+                <ShopPage />
+              </ErrorBoundary>
+            }
+          />
           <Route path="product/:productId" element={<ProductDetailPage />} />
           <Route path="gallery" element={<GalleryPage />} />
           <Route path="about" element={<AboutPage />} />

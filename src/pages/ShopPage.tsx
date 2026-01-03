@@ -324,34 +324,24 @@ export function ShopPage() {
   const loadProducts = async () => {
     try {
       const allProducts = await fetchProducts({ visible: true });
-      const availableProducts = (allProducts || []).filter((p) => !p.isSold);
-      console.log(
-        '[ShopPage] product sample (first 3)',
-        availableProducts.slice(0, 3).map((p) => ({
-          id: p.id,
-          name: p.name,
-          type: p.type,
-          category: (p as any).category ?? null,
-          categories: Array.isArray((p as any).categories) ? (p as any).categories : null,
-        }))
-      );
+      const normalizedProducts = Array.isArray(allProducts) ? allProducts : [];
+      const availableProducts = normalizedProducts.filter((p) => !p.isSold);
       setProducts(availableProducts);
 
       let apiCategories: Category[] = [];
       try {
-        apiCategories = await fetchCategories();
+        const fetchedCategories = await fetchCategories();
+        apiCategories = Array.isArray(fetchedCategories) ? fetchedCategories : [];
       } catch (categoryError) {
         console.error('Error loading categories:', categoryError);
       }
 
       const orderedCategories = orderCategorySummaries(dedupeCategories(apiCategories));
-      console.log(
-        '[ShopPage] merged category list',
-        orderedCategories.map((c) => ({ slug: c.slug, name: c.name }))
-      );
       setCategories(orderedCategories);
     } catch (error) {
       console.error('Error loading products:', error);
+      setProducts([]);
+      setCategories([]);
     } finally {
       setIsLoading(false);
     }
@@ -371,17 +361,6 @@ export function ShopPage() {
     products.forEach((product) => {
       const resolution = resolveCategorySlugForProduct(product, categoryList, lookups, fallbackSlug);
       const key = resolution.slug || fallbackSlug;
-      if (resolution.matchedBy === 'fallback' || !resolution.slug) {
-        console.log('[ShopPage][category-fallback]', {
-          productId: product.id,
-          productName: product.name,
-          candidateNames: resolution.candidateNames,
-          normalizedCandidates: resolution.normalizedCandidates,
-          fallbackSlug,
-          resolvedSlug: resolution.slug,
-          matchedBy: resolution.matchedBy,
-        });
-      }
       if (!key) return;
       if (!groups[key]) groups[key] = [];
       groups[key].push(product);
@@ -436,14 +415,6 @@ export function ShopPage() {
     return [active, ...categoryList.filter((c) => c.slug !== active.slug)];
   }, [activeCategorySlug, categoryList]);
 
-  useEffect(() => {
-    if (!categoryList.length) return;
-    console.log(
-      '[ShopPage] categoryList effect',
-      categoryList.map((c) => ({ slug: c.slug, name: c.name }))
-    );
-  }, [categoryList]);
-
   return (
     <div id="shop-top" className="py-12 bg-white min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -479,6 +450,13 @@ export function ShopPage() {
         {isLoading ? (
           <div className="text-center py-12">
             <p className="text-gray-500">Loading products...</p>
+          </div>
+        ) : products.length === 0 ? (
+          <div className="text-center py-16">
+            <h2 className="text-2xl font-serif text-slate-900">No products available yet</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Please check back soon for new coastal pieces.
+            </p>
           </div>
         ) : (
           <div className="space-y-12">
