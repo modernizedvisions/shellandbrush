@@ -1,4 +1,4 @@
-import { isBlockedImageUrl, resolvePublicImageUrl } from './_lib/imageUrls';
+﻿import { isBlockedImageUrl, normalizePublicImageUrl, resolvePublicImageUrl } from './_lib/imageUrls';
 import { getPublicImagesBaseUrl } from './_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
@@ -82,9 +82,11 @@ export async function onRequestGet(context: {
 
     const rows = results || [];
     const imageIds = rows.map((row) => row.image_id || '').filter(Boolean);
-    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
+    const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
     const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
-    const images = rows.map((row) => mapRowToImage(row, schemaInfo, imageUrlMap)).filter(Boolean);
+    const normalize = (value: string | null | undefined) =>
+      normalizePublicImageUrl(value, context.env, context.request);
+    const images = rows.map((row) => mapRowToImage(row, schemaInfo, imageUrlMap, normalize)).filter(Boolean);
     console.log('[api/gallery][get] fetched', { count: images.length });
 
     return new Response(JSON.stringify({ images }), {
@@ -163,8 +165,10 @@ export async function onRequestPut(context: {
     }
 
     const imageIds = normalized.map((img) => img.imageId || '').filter(Boolean);
-    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
+    const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
     const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
+    const normalize = (value: string | null | undefined) =>
+      normalizePublicImageUrl(value, context.env, context.request);
     const blocked = normalized.find((img) => {
       const resolvedUrl = img.imageId ? imageUrlMap.get(img.imageId) || img.url : img.url;
       return isBlockedImageUrl(resolvedUrl);
@@ -249,7 +253,7 @@ export async function onRequestPut(context: {
     const refreshedIds = refreshedRows.map((row) => row.image_id || '').filter(Boolean);
     const refreshedUrlMap = await fetchImageUrlMap(db, refreshedIds, baseUrl);
     const savedImages = refreshedRows
-      .map((row) => mapRowToImage(row, schemaInfo, refreshedUrlMap))
+      .map((row) => mapRowToImage(row, schemaInfo, refreshedUrlMap, normalize))
       .filter(Boolean);
     const countRow = await db.prepare(`SELECT COUNT(*) as c FROM gallery_images;`).first<{ c: number }>();
     console.log('[api/gallery] saved', {
@@ -272,15 +276,21 @@ export async function onRequestPut(context: {
 // Allow POST as a convenience in case clients mis-send the verb.
 export const onRequestPost = onRequestPut;
 
-function mapRowToImage(row: GalleryRow | null | undefined, _schema: SchemaInfo, imageUrlMap: Map<string, string>) {
+function mapRowToImage(
+  row: GalleryRow | null | undefined,
+  _schema: SchemaInfo,
+  imageUrlMap: Map<string, string>,
+  normalizeUrl?: (value: string | null | undefined) => string
+) {
   if (!row?.id) return null;
   const url = row.url || row.image_url || (row.image_id ? imageUrlMap.get(row.image_id) || '' : '');
   if (!url) return null;
   const hidden = row.hidden !== undefined && row.hidden !== null ? row.hidden === 1 : row.is_active === 0;
   const position = Number.isFinite(row.sort_order) ? (row.sort_order as number) : row.position ?? 0;
+  const normalized = normalizeUrl ? normalizeUrl(url) : url;
   return {
     id: row.id,
-    imageUrl: url,
+    imageUrl: normalized,
     imageId: row.image_id || undefined,
     alt: row.alt_text || undefined,
     title: row.alt_text || undefined,

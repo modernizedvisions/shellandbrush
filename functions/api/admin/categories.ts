@@ -1,6 +1,6 @@
-import { defaultShopCategoryTiles } from '../../../src/lib/db/mockData';
+﻿import { defaultShopCategoryTiles } from '../../../src/lib/db/mockData';
 import { requireAdmin } from '../_lib/adminAuth';
-import { isBlockedImageUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
+import { isBlockedImageUrl, normalizePublicImageUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
 import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
@@ -44,6 +44,9 @@ const BASE_CATEGORY_ORDER = [
   { name: 'Decor', slug: 'decor' },
   { name: 'Wine Stoppers', slug: 'wine-stopper' },
 ];
+
+const normalizeWithBase = (value: string | null | undefined, baseUrl: string) =>
+  normalizePublicImageUrl(value, { PUBLIC_IMAGES_BASE_URL: baseUrl }, undefined);
 
 const OTHER_ITEMS_CATEGORY = {
   id: 'other-items',
@@ -104,7 +107,7 @@ export async function onRequest(context: {
   const auth = requireAdmin(context.request, context.env);
   if (auth) return auth;
   const method = context.request.method.toUpperCase();
-  const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
+  const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
 
   try {
     await ensureCategorySchema(context.env.DB);
@@ -140,8 +143,10 @@ async function handleGet(db: D1Database, baseUrl: string): Promise<Response> {
   const rows = results || [];
   const imageIds = rows.flatMap((row) => [row.image_id || '', row.hero_image_id || '']).filter(Boolean);
   const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
+  const normalizeImageUrl = (value: string | null | undefined) =>
+    normalizePublicImageUrl(value, { PUBLIC_IMAGES_BASE_URL: baseUrl }, undefined);
   const categories = orderCategories(
-    rows.map((row) => mapRowToCategory(row, imageUrlMap)).filter((c): c is Category => Boolean(c))
+    rows.map((row) => mapRowToCategory(row, imageUrlMap, normalizeImageUrl)).filter((c): c is Category => Boolean(c))
   );
   return json({ categories });
 }
@@ -207,7 +212,8 @@ async function handlePost(db: D1Database, request: Request, baseUrl: string): Pr
     [created?.image_id || '', created?.hero_image_id || ''].filter(Boolean),
     baseUrl
   );
-  return json({ category: mapRowToCategory(created as CategoryRow, imageUrlMap) }, 201);
+  const normalizeImageUrl = (value: string | null | undefined) => normalizeWithBase(value, baseUrl);
+  return json({ category: mapRowToCategory(created as CategoryRow, imageUrlMap, normalizeImageUrl) }, 201);
 }
 
 async function handlePut(db: D1Database, request: Request, baseUrl: string): Promise<Response> {
@@ -284,7 +290,8 @@ async function handlePut(db: D1Database, request: Request, baseUrl: string): Pro
     [updated?.image_id || '', updated?.hero_image_id || ''].filter(Boolean),
     baseUrl
   );
-  return json({ category: mapRowToCategory(updated as CategoryRow, imageUrlMap) });
+  const normalizeImageUrl = (value: string | null | undefined) => normalizeWithBase(value, baseUrl);
+  return json({ category: mapRowToCategory(updated as CategoryRow, imageUrlMap, normalizeImageUrl) });
 }
 
 async function handleDelete(db: D1Database, request: Request): Promise<Response> {
@@ -334,7 +341,7 @@ async function handleDelete(db: D1Database, request: Request): Promise<Response>
   return json({ success: true });
 }
 
-const mapRowToCategory = (row: CategoryRow, imageUrlMap: Map<string, string>): Category | null => {
+const mapRowToCategory = (row: CategoryRow, imageUrlMap: Map<string, string>, normalizeImageUrl: (value: string | null | undefined) => string): Category | null => {
   if (!row || !row.id || !row.name || !row.slug) return null;
   const imageUrl =
     row.image_url ||
@@ -505,3 +512,7 @@ async function ensureOtherItemsCategory(db: D1Database) {
     return null;
   }
 }
+
+
+
+

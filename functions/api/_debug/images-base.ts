@@ -1,4 +1,4 @@
-import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
+﻿import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
 
 type Env = {
   PUBLIC_IMAGES_BASE_URL?: string;
@@ -14,7 +14,7 @@ const json = (data: unknown, status = 200) =>
   });
 
 export async function onRequestGet(context: { request: Request; env: Env }): Promise<Response> {
-  const base = getPublicImagesBaseUrl(context.request, context.env);
+  const base = getPublicImagesBaseUrl(context.env, context.request);
   return json({
     ok: true,
     publicImagesBaseUrl: base,
@@ -23,3 +23,4 @@ export async function onRequestGet(context: { request: Request; env: Env }): Pro
     hasDb: !!context.env.DB,
   });
 }
+

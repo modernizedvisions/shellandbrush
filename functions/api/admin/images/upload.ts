@@ -1,4 +1,4 @@
-import { requireAdmin } from '../../_lib/adminAuth';
+﻿import { requireAdmin } from '../../_lib/adminAuth';
 
 type D1PreparedStatement = {
   run(): Promise<{ success: boolean; error?: string }>;
@@ -280,7 +280,7 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
     if (!/^https:\/\//i.test(publicUrl)) {
       return respondError({
         code: 'BAD_PUBLIC_IMAGES_BASE_URL',
-        message: 'PUBLIC_IMAGES_BASE_URL must be an https URL like https://shellandbrush.pages.dev/images',
+        message: 'PUBLIC_IMAGES_BASE_URL must be an https URL like https://shellandbrush.com/images',
         status: 500,
       });
     }
@@ -356,3 +356,4 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
     });
   }
 }
+

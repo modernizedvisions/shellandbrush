@@ -1,6 +1,6 @@
-import type { Product } from '../../../../src/lib/types';
+﻿import type { Product } from '../../../../src/lib/types';
 import { requireAdmin } from '../../_lib/adminAuth';
-import { isBlockedImageUrl, resolvePublicImageUrl } from '../../_lib/imageUrls';
+import { isBlockedImageUrl, normalizePublicImageUrl, resolvePublicImageUrl } from '../../_lib/imageUrls';
 import { getPublicImagesBaseUrl } from '../../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
@@ -51,7 +51,7 @@ type UpdateProductInput = {
   collection?: string;
 };
 
-const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>): Product => {
+const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>, normalize: (value: string | null | undefined) => string): Product => {
   const imageIds = row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : [];
   const legacyExtras = row.image_urls_json ? safeParseJsonArray(row.image_urls_json) : [];
   const legacyPrimary = row.image_url || legacyExtras[0] || '';
@@ -78,17 +78,25 @@ const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>): Pro
     resolvedImageUrls = [primaryImage, ...resolvedImageUrls.filter((url) => url !== primaryImage)];
   }
 
+  const normalizedPrimary = normalize(primaryImage);
+  const normalizedUrls = resolvedImageUrls
+    .map((url) => normalize(url))
+    .filter((url) => url && url.length > 0);
+  const finalUrls = normalizedPrimary
+    ? [normalizedPrimary, ...normalizedUrls.filter((url) => url !== normalizedPrimary)]
+    : normalizedUrls;
+
   return {
     id: row.id,
     stripeProductId: row.stripe_product_id || row.id,
     stripePriceId: row.stripe_price_id || undefined,
     name: row.name ?? '',
     description: row.description ?? '',
-    imageUrls: resolvedImageUrls,
-    imageUrl: primaryImage,
+    imageUrls: finalUrls,
+    imageUrl: normalizedPrimary,
     primaryImageId: row.primary_image_id || (imageIds[0] || undefined),
     imageIds: imageIds.length ? imageIds : undefined,
-    thumbnailUrl: primaryImage || undefined,
+    thumbnailUrl: normalizedPrimary || undefined,
     type: row.category ?? 'General',
     category: row.category ?? undefined,
     categories: row.category ? [row.category] : undefined,
@@ -325,7 +333,7 @@ export async function onRequestPut(context: {
       const categoryValue = sanitizeCategory(body.category);
       addSet('category = ?', categoryValue || null);
     }
-    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
+    const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
     if (primaryImageId || imageIds.length) {
       const resolved = await resolveImageUrlsFromIds(context.env.DB, baseUrl, primaryImageId, imageIds);
       if (primaryImageId && !resolved.primaryUrl && !body.imageUrl) {
@@ -414,7 +422,9 @@ export async function onRequestPut(context: {
       ...(updated?.image_ids_json ? safeParseJsonArray(updated.image_ids_json) : []),
     ].filter(Boolean);
     const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIdSet, baseUrl);
-    const product = updated ? mapRowToProduct(updated, imageUrlMap) : null;
+    const normalize = (value: string | null | undefined) =>
+      normalizePublicImageUrl(value, context.env, context.request);
+    const product = updated ? mapRowToProduct(updated, imageUrlMap, normalize) : null;
 
     return new Response(JSON.stringify({ product }), {
       status: 200,
@@ -473,3 +483,6 @@ export async function onRequestDelete(context: {
     });
   }
 }
+
+
+

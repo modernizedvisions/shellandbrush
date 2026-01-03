@@ -1,5 +1,5 @@
-import type { Product } from '../../src/lib/types';
-import { resolvePublicImageUrl } from './_lib/imageUrls';
+﻿import type { Product } from '../../src/lib/types';
+import { normalizePublicImageUrl, resolvePublicImageUrl } from './_lib/imageUrls';
 import { getPublicImagesBaseUrl } from './_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
@@ -71,8 +71,10 @@ export async function onRequestGet(context: {
       const primary = row.primary_image_id ? [row.primary_image_id] : [];
       return [...primary, ...extra];
     });
-    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
+    const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
     const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds, baseUrl);
+    const normalize = (value: string | null | undefined) =>
+      normalizePublicImageUrl(value, context.env, context.request);
 
     const products: Product[] = rows.map((row) => {
       const imageIdsRow = row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : [];
@@ -105,17 +107,25 @@ export async function onRequestGet(context: {
         resolvedImageUrls = [primaryImage, ...resolvedImageUrls.filter((url) => url !== primaryImage)];
       }
 
+      const normalizedPrimary = normalize(primaryImage);
+      const normalizedUrls = resolvedImageUrls
+        .map((url) => normalize(url))
+        .filter((url) => url && url.length > 0);
+      const finalUrls = normalizedPrimary
+        ? [normalizedPrimary, ...normalizedUrls.filter((url) => url !== normalizedPrimary)]
+        : normalizedUrls;
+
       return {
         id: row.id,
         stripeProductId: row.stripe_product_id || row.id, // placeholder until Stripe linkage is added
         stripePriceId: row.stripe_price_id || undefined,
         name: row.name ?? '',
         description: row.description ?? '',
-        imageUrls: resolvedImageUrls,
-        imageUrl: primaryImage,
+        imageUrls: finalUrls,
+        imageUrl: normalizedPrimary,
         primaryImageId: row.primary_image_id || (imageIdsRow[0] || undefined),
         imageIds: imageIdsRow.length ? imageIdsRow : undefined,
-        thumbnailUrl: primaryImage || undefined,
+        thumbnailUrl: normalizedPrimary || undefined,
         type: row.category ?? 'General',
         category: row.category ?? undefined,
         categories: row.category ? [row.category] : undefined,
@@ -222,3 +232,9 @@ async function ensureProductSchema(db: D1Database) {
     }
   }
 }
+
+
+
+
+
+

@@ -1,5 +1,5 @@
-import { defaultShopCategoryTiles } from '../../src/lib/db/mockData';
-import { resolvePublicImageUrl } from './_lib/imageUrls';
+﻿import { defaultShopCategoryTiles } from '../../src/lib/db/mockData';
+import { normalizePublicImageUrl, resolvePublicImageUrl } from './_lib/imageUrls';
 import { getPublicImagesBaseUrl } from './_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
@@ -109,10 +109,12 @@ export async function onRequestGet(context: {
 
     const rows = results || [];
     const imageIds = rows.flatMap((row) => [row.image_id || '', row.hero_image_id || '']).filter(Boolean);
-    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
+    const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
     const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds, baseUrl);
+    const normalize = (value: string | null | undefined) =>
+      normalizePublicImageUrl(value, context.env, context.request);
     const categories = orderCategories(
-      rows.map((row) => mapRowToCategory(row, imageUrlMap)).filter((c): c is Category => Boolean(c))
+      rows.map((row) => mapRowToCategory(row, imageUrlMap, normalize)).filter((c): c is Category => Boolean(c))
     );
 
     return new Response(JSON.stringify({ categories }), {
@@ -128,14 +130,10 @@ export async function onRequestGet(context: {
   }
 }
 
-const mapRowToCategory = (row: CategoryRow, imageUrlMap: Map<string, string>): Category | null => {
+const mapRowToCategory = (row: CategoryRow, imageUrlMap: Map<string, string>, normalize: (value: string | null | undefined) => string): Category | null => {
   if (!row || !row.id || !row.name || !row.slug) return null;
-  const imageUrl =
-    row.image_url ||
-    (row.image_id ? imageUrlMap.get(row.image_id) || undefined : undefined);
-  const heroImageUrl =
-    row.hero_image_url ||
-    (row.hero_image_id ? imageUrlMap.get(row.hero_image_id) || undefined : undefined);
+  const imageUrl = normalize(row.image_url || (row.image_id ? imageUrlMap.get(row.image_id) || undefined : undefined));
+  const heroImageUrl = normalize(row.hero_image_url || (row.hero_image_id ? imageUrlMap.get(row.hero_image_id) || undefined : undefined));
   const normalizedSlug = toSlug(row.slug);
   const normalizedName = toSlug(row.name);
   const featuredWorksName = normalizedSlug === OTHER_ITEMS_CATEGORY.slug || normalizedName === 'other-items';
@@ -284,3 +282,6 @@ async function ensureOtherItemsCategory(db: D1Database) {
     return null;
   }
 }
+
+
+

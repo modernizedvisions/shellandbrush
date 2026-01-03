@@ -1,5 +1,5 @@
-import { requireAdmin } from '../../_lib/adminAuth';
-import { isBlockedImageUrl, resolvePublicImageUrl } from '../../_lib/imageUrls';
+﻿import { requireAdmin } from '../../_lib/adminAuth';
+import { isBlockedImageUrl, normalizePublicImageUrl, resolvePublicImageUrl } from '../../_lib/imageUrls';
 import { getPublicImagesBaseUrl } from '../../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
@@ -104,7 +104,9 @@ export async function onRequestPut(context: { request: Request; env: Env }): Pro
     ...customOrdersImages.map((img) => img?.imageId || ''),
     incoming.heroImageId || '',
   ].filter(Boolean);
-  const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
+  const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
+  const normalize = (value: string | null | undefined) =>
+    normalizePublicImageUrl(value, context.env, context.request);
   const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
 
   const sanitized: SiteConfig = {
@@ -114,7 +116,7 @@ export async function onRequestPut(context: { request: Request; env: Env }): Pro
       .map((img) => ({
         id: img.id,
         imageId: img.imageId,
-        imageUrl: img.imageUrl || (img.imageId ? imageUrlMap.get(img.imageId) || '' : ''),
+        imageUrl: normalize(img.imageUrl || (img.imageId ? imageUrlMap.get(img.imageId) || '' : '')),
         alt: img.alt,
       })),
     customOrdersImages: customOrdersImages
@@ -123,7 +125,7 @@ export async function onRequestPut(context: { request: Request; env: Env }): Pro
       .map((img) => ({
         id: img.id,
         imageId: img.imageId,
-        imageUrl: img.imageUrl || (img.imageId ? imageUrlMap.get(img.imageId) || '' : ''),
+        imageUrl: normalize(img.imageUrl || (img.imageId ? imageUrlMap.get(img.imageId) || '' : '')),
         alt: img.alt,
       })),
     heroRotationEnabled: !!incoming.heroRotationEnabled,
@@ -148,7 +150,7 @@ export async function onRequestPut(context: { request: Request; env: Env }): Pro
   const hydrate = (images: HeroImageConfig[]) =>
     images.map((img) => ({
       ...img,
-      imageUrl: img.imageUrl || (img.imageId ? imageUrlMap.get(img.imageId) || '' : ''),
+      imageUrl: normalize(img.imageUrl || (img.imageId ? imageUrlMap.get(img.imageId) || '' : '')),
     }));
 
   return json({
@@ -157,7 +159,7 @@ export async function onRequestPut(context: { request: Request; env: Env }): Pro
       ...sanitized,
       heroImages: hydrate(sanitized.heroImages || []),
       customOrdersImages: hydrate(sanitized.customOrdersImages || []),
-      heroImageUrl: sanitized.heroImageId ? imageUrlMap.get(sanitized.heroImageId) || '' : '',
+      heroImageUrl: normalize(sanitized.heroImageId ? imageUrlMap.get(sanitized.heroImageId) || '' : ''),
       updatedAt: now,
     },
   });
@@ -167,3 +169,6 @@ export async function onRequest(context: { request: Request; env: Env }): Promis
   if (context.request.method.toUpperCase() === 'PUT') return onRequestPut(context);
   return json({ error: 'Method not allowed' }, 405);
 }
+
+
+

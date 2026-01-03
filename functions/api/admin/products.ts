@@ -1,7 +1,7 @@
-import Stripe from 'stripe';
+﻿import Stripe from 'stripe';
 import type { Product } from '../../../src/lib/types';
 import { requireAdmin } from '../_lib/adminAuth';
-import { isBlockedImageUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
+import { isBlockedImageUrl, normalizePublicImageUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
 import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
@@ -42,6 +42,10 @@ const createStripeClient = (secretKey: string) =>
     httpClient: Stripe.createFetchHttpClient(),
   });
 
+const buildNormalize = (baseUrl: string) =>
+  (value: string | null | undefined) =>
+    normalizePublicImageUrl(value, { PUBLIC_IMAGES_BASE_URL: baseUrl }, undefined);
+
 type NewProductInput = {
   name: string;
   description: string;
@@ -60,7 +64,7 @@ type NewProductInput = {
   collection?: string;
 };
 
-const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>): Product => {
+const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>, normalize: (value: string | null | undefined) => string): Product => {
   const imageIds = row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : [];
   const legacyExtras = row.image_urls_json ? safeParseJsonArray(row.image_urls_json) : [];
   const legacyPrimary = row.image_url || legacyExtras[0] || '';
@@ -87,17 +91,25 @@ const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>): Pro
     resolvedImageUrls = [primaryImage, ...resolvedImageUrls.filter((url) => url !== primaryImage)];
   }
 
+  const normalizedPrimary = normalize(primaryImage);
+  const normalizedUrls = resolvedImageUrls
+    .map((url) => normalize(url))
+    .filter((url) => url && url.length > 0);
+  const finalUrls = normalizedPrimary
+    ? [normalizedPrimary, ...normalizedUrls.filter((url) => url !== normalizedPrimary)]
+    : normalizedUrls;
+
   return {
     id: row.id,
     stripeProductId: row.stripe_product_id || row.id,
     stripePriceId: row.stripe_price_id || undefined,
     name: row.name ?? '',
     description: row.description ?? '',
-    imageUrls: resolvedImageUrls,
-    imageUrl: primaryImage,
+    imageUrls: finalUrls,
+    imageUrl: normalizedPrimary,
     primaryImageId: row.primary_image_id || (imageIds[0] || undefined),
     imageIds: imageIds.length ? imageIds : undefined,
-    thumbnailUrl: primaryImage || undefined,
+    thumbnailUrl: normalizedPrimary || undefined,
     type: row.category ?? 'General',
     category: row.category ?? undefined,
     categories: row.category ? [row.category] : undefined,
@@ -291,9 +303,10 @@ export async function onRequestGet(context: {
       const primary = row.primary_image_id ? [row.primary_image_id] : [];
       return [...primary, ...extra];
     });
-    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
+    const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
+    const normalize = buildNormalize(baseUrl);
     const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds, baseUrl);
-    const products: Product[] = rows.map((row) => mapRowToProduct(row, imageUrlMap));
+    const products: Product[] = rows.map((row) => mapRowToProduct(row, imageUrlMap, normalize));
 
     return new Response(JSON.stringify({ products }), {
       status: 200,
@@ -382,7 +395,8 @@ export async function onRequestPost(context: {
     let resolvedExtraUrls = imageUrls;
     let resolvedPrimaryImageId = primaryImageId;
     let resolvedImageIds = imageIds;
-    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
+    const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
+    const normalize = buildNormalize(baseUrl);
 
     if (primaryImageId || imageIds.length) {
       const resolved = await resolveImageUrlsFromIds(context.env.DB, baseUrl, primaryImageId, imageIds);
@@ -478,7 +492,7 @@ export async function onRequestPost(context: {
         ...(inserted?.image_ids_json ? safeParseJsonArray(inserted.image_ids_json) : []),
       ].filter(Boolean);
       const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIdSet, baseUrl);
-      const product = inserted ? mapRowToProduct(inserted, imageUrlMap) : null;
+      const product = inserted ? mapRowToProduct(inserted, imageUrlMap, normalize) : null;
       return new Response(JSON.stringify({ product, error: 'Stripe is not configured' }), {
         status: 201,
         headers: { 'Content-Type': 'application/json' },
@@ -515,7 +529,7 @@ export async function onRequestPost(context: {
       }
     } catch (stripeError) {
       console.error('Failed to create Stripe product/price', stripeError);
-      const product = inserted ? mapRowToProduct(inserted) : null;
+      const product = inserted ? mapRowToProduct(inserted, imageUrlMap, normalize) : null;
       return new Response(JSON.stringify({ product, error: 'Failed to create Stripe product and price.' }), {
         status: 201,
         headers: { 'Content-Type': 'application/json' },
@@ -527,7 +541,7 @@ export async function onRequestPost(context: {
       ...(inserted?.image_ids_json ? safeParseJsonArray(inserted.image_ids_json) : []),
     ].filter(Boolean);
     const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIdSet, baseUrl);
-    const product = inserted ? mapRowToProduct(inserted, imageUrlMap) : null;
+    const product = inserted ? mapRowToProduct(inserted, imageUrlMap, normalize) : null;
 
     return new Response(JSON.stringify({ product }), {
       status: 201,
@@ -607,3 +621,13 @@ export async function onRequest(context: { env: { DB: D1Database; ADMIN_PASSWORD
     headers: { 'Content-Type': 'application/json' },
   });
 }
+
+
+
+
+
+
+
+
+
+

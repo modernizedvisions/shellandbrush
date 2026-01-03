@@ -1,5 +1,5 @@
-import type { Product } from '../../../src/lib/types';
-import { resolvePublicImageUrl } from '../_lib/imageUrls';
+﻿import type { Product } from '../../../src/lib/types';
+import { normalizePublicImageUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
 import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
@@ -43,7 +43,7 @@ const safeParseJsonArray = (value: string | null): string[] => {
   }
 };
 
-const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>): Product => {
+const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>, normalize: (value: string | null | undefined) => string): Product => {
   const imageIds = row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : [];
   const legacyExtras = row.image_urls_json ? safeParseJsonArray(row.image_urls_json) : [];
   const legacyPrimary = row.image_url || legacyExtras[0] || '';
@@ -70,17 +70,25 @@ const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>): Pro
     resolvedImageUrls = [primaryImage, ...resolvedImageUrls.filter((url) => url !== primaryImage)];
   }
 
+  const normalizedPrimary = normalize(primaryImage);
+  const normalizedUrls = resolvedImageUrls
+    .map((url) => normalize(url))
+    .filter((url) => url && url.length > 0);
+  const finalUrls = normalizedPrimary
+    ? [normalizedPrimary, ...normalizedUrls.filter((url) => url !== normalizedPrimary)]
+    : normalizedUrls;
+
   return {
     id: row.id,
     stripeProductId: row.stripe_product_id || row.id,
     stripePriceId: row.stripe_price_id || undefined,
     name: row.name ?? '',
     description: row.description ?? '',
-    imageUrls: resolvedImageUrls,
-    imageUrl: primaryImage,
+    imageUrls: finalUrls,
+    imageUrl: normalizedPrimary,
     primaryImageId: row.primary_image_id || (imageIds[0] || undefined),
     imageIds: imageIds.length ? imageIds : undefined,
-    thumbnailUrl: primaryImage || undefined,
+    thumbnailUrl: normalizedPrimary || undefined,
     type: row.category ?? 'General',
     category: row.category ?? undefined,
     categories: row.category ? [row.category] : undefined,
@@ -98,6 +106,7 @@ const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>): Pro
 export async function onRequestGet(context: {
   env: { DB: D1Database; PUBLIC_IMAGES_BASE_URL?: string };
   params: Record<string, string>;
+  request: Request;
 }): Promise<Response> {
   const idOrSlug = context.params?.id;
   if (!idOrSlug) {
@@ -134,9 +143,11 @@ export async function onRequestGet(context: {
       row.primary_image_id || '',
       ...(row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : []),
     ].filter(Boolean);
-    const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
+    const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
     const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIdSet, baseUrl);
-    const product = mapRowToProduct(row, imageUrlMap);
+    const normalize = (value: string | null | undefined) =>
+      normalizePublicImageUrl(value, context.env, context.request);
+    const product = mapRowToProduct(row, imageUrlMap, normalize);
     return new Response(JSON.stringify({ product }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -219,3 +230,6 @@ async function ensureProductSchema(db: D1Database) {
     }
   }
 }
+
+
+

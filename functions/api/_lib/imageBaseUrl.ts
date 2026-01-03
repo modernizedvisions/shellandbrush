@@ -1,8 +1,8 @@
-export function getPublicImagesBaseUrl(request: Request, env: { PUBLIC_IMAGES_BASE_URL?: string }): string {
-  const raw = (env.PUBLIC_IMAGES_BASE_URL || '').trim().replace(/\/+$/, '');
-  if (/^https:\/\//i.test(raw)) {
-    return raw;
-  }
-  const host = request.headers.get('host') || new URL(request.url).host;
-  return `https://${host}/images`;
+﻿import { getPublicImagesBaseUrl as sharedGetPublicImagesBaseUrl } from '../../_lib/imageBaseUrl';
+
+export function getPublicImagesBaseUrl(
+  env: { PUBLIC_IMAGES_BASE_URL?: string; PUBLIC_SITE_URL?: string; VITE_PUBLIC_SITE_URL?: string },
+  request?: Request
+): string {
+  return sharedGetPublicImagesBaseUrl(env, request);
 }

@@ -1,4 +1,4 @@
-import { resolvePublicImageUrl } from '../_lib/imageUrls';
+﻿import { normalizePublicImageUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
 import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
 
 type D1PreparedStatement = {
@@ -117,8 +117,10 @@ export async function onRequestGet(context: { env: Env; request: Request }): Pro
     ...customOrdersImages.map((img) => img.imageId || ''),
     config.heroImageId || '',
   ].filter(Boolean);
-  const baseUrl = getPublicImagesBaseUrl(context.request, context.env);
+  const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
   const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
+  const normalize = (value: string | null | undefined) =>
+    normalizePublicImageUrl(value, context.env, context.request);
 
   const hydrate = (images: HeroImageConfig[]) =>
     images.map((img) => {
@@ -127,7 +129,7 @@ export async function onRequestGet(context: { env: Env; request: Request }): Pro
       const resolved = isHttpUrl(fromConfig) ? fromConfig : isHttpUrl(fromId) ? fromId : fromId || fromConfig || '';
       return {
         ...img,
-        imageUrl: resolved,
+        imageUrl: normalize(resolved),
       };
     });
 
@@ -135,7 +137,7 @@ export async function onRequestGet(context: { env: Env; request: Request }): Pro
   const heroFromId = config.heroImageId ? imageUrlMap.get(config.heroImageId) || '' : '';
   const hydratedHeroImages = hydrate(heroImages);
   const heroFromList = hydratedHeroImages[0]?.imageUrl?.trim() || '';
-  const heroUrl = heroFromConfig || heroFromId || heroFromList || '';
+  const heroUrl = normalize(heroFromConfig || heroFromId || heroFromList || '');
   const heroUrlSource = heroFromConfig
     ? 'config.heroImageUrl'
     : heroFromId
@@ -155,6 +157,14 @@ export async function onRequestGet(context: { env: Env; request: Request }): Pro
     },
   };
 
+  if (context.env?.DEBUG_IMAGE_URLS === '1') {
+    response.debug = {
+      ...(response.debug as Record<string, unknown> | undefined),
+      normalized: true,
+      base: baseUrl,
+    };
+  }
+
   const host = context.request.headers.get('host') || '';
   if (host.includes('localhost') || host.includes('127.0.0.1')) {
     response.debug = {
@@ -165,3 +175,6 @@ export async function onRequestGet(context: { env: Env; request: Request }): Pro
 
   return json(response);
 }
+
+
+

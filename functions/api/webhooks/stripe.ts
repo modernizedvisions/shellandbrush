@@ -1,4 +1,4 @@
-import Stripe from 'stripe';
+﻿import Stripe from 'stripe';
 import { sendEmail } from '../../_lib/email';
 import {
   renderOrderConfirmationEmailHtml,
@@ -13,7 +13,7 @@ import {
   type OwnerNewSaleItem,
 } from '../../_lib/ownerNewSaleEmail';
 import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
-import { resolvePublicImageUrl } from '../_lib/imageUrls';
+import { normalizePublicImageUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
 import { resolveCustomEmailTotals, resolveStandardEmailTotals } from '../../_lib/emailTotals';
 import { calculateShippingCents } from '../../_lib/shipping';
 import {
@@ -64,7 +64,7 @@ export const onRequestPost = async (context: {
   const { request, env } = context;
   const ownerTo = env.RESEND_OWNER_TO || env.EMAIL_OWNER_TO;
   const siteUrl = (env.PUBLIC_SITE_URL || env.VITE_PUBLIC_SITE_URL || '').replace(/\/+$/, '');
-  const imageBaseUrl = getPublicImagesBaseUrl(request, env);
+  const imageBaseUrl = getPublicImagesBaseUrl(env, request);
   const ok = () =>
     new Response(JSON.stringify({ received: true }), {
       status: 200,
@@ -1688,3 +1688,5 @@ function buildStripeDashboardUrl(
   if (paymentIntentId) return `${base}/payments/${paymentIntentId}`;
   return `${base}/checkout/sessions/${sessionId}`;
 }
+
+
