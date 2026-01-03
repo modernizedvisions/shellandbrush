@@ -37,6 +37,15 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
   const [createImageError, setCreateImageError] = useState<string | null>(null);
   const [isImageBusy, setIsImageBusy] = useState(false);
   const [imageActionError, setImageActionError] = useState<string | null>(null);
+  const [editShippingInput, setEditShippingInput] = useState('');
+  const [isSavingShipping, setIsSavingShipping] = useState(false);
+  const [shippingActionError, setShippingActionError] = useState<string | null>(null);
+  const shippingTooltip = 'Shipping is a flat per-order fee for custom orders.';
+  const formatDollars = (cents: number | null | undefined) => ((cents ?? 0) / 100).toFixed(2);
+  const normalizeShippingCents = (value: string) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) : 0;
+  };
   const createImageInputRef = useRef<HTMLInputElement | null>(null);
   const viewImageInputRef = useRef<HTMLInputElement | null>(null);
   const draftDefaults = useMemo(() => {
@@ -678,6 +687,7 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
     </div>
   );
 };
+
 
 
 
