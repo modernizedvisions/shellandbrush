@@ -321,39 +321,6 @@ export function ShopPage() {
     }
   }, [location.hash]);
 
-  useEffect(() => {
-    const typeParam = searchParams.get('type');
-    const normalized = typeParam ? toSlug(typeParam) : '';
-    const match = normalized
-      ? visibleCategories.find(
-          (c) => toSlug(c.slug) === normalized || toSlug(c.name) === normalized
-        )
-      : undefined;
-
-    if (match) {
-      if (activeCategorySlug !== match.slug) {
-        setActiveCategorySlug(match.slug);
-      }
-      return;
-    }
-
-    if (!visibleCategories.length) {
-      if (activeCategorySlug) {
-        setActiveCategorySlug('');
-        searchParams.delete('type');
-        setSearchParams(searchParams, { replace: true });
-      }
-      return;
-    }
-
-    const fallbackSlug = visibleCategories[0].slug;
-    if (!activeCategorySlug || !visibleCategories.some((c) => c.slug === activeCategorySlug)) {
-      setActiveCategorySlug(fallbackSlug);
-      searchParams.set('type', fallbackSlug);
-      setSearchParams(searchParams, { replace: true });
-    }
-  }, [searchParams, visibleCategories, activeCategorySlug, setSearchParams]);
-
   const loadProducts = async () => {
     try {
       const allProducts = await fetchProducts({ visible: true });
@@ -426,6 +393,39 @@ export function ShopPage() {
     if (!categoryList.length) return [];
     return categoryList.filter((category) => (groupedProducts[category.slug] || []).length > 0);
   }, [categoryList, groupedProducts]);
+
+  useEffect(() => {
+    const typeParam = searchParams.get('type');
+    const normalized = typeParam ? toSlug(typeParam) : '';
+    const match = normalized
+      ? visibleCategories.find(
+          (c) => toSlug(c.slug) === normalized || toSlug(c.name) === normalized
+        )
+      : undefined;
+
+    if (match) {
+      if (activeCategorySlug !== match.slug) {
+        setActiveCategorySlug(match.slug);
+      }
+      return;
+    }
+
+    if (!visibleCategories.length) {
+      if (activeCategorySlug) {
+        setActiveCategorySlug('');
+        searchParams.delete('type');
+        setSearchParams(searchParams, { replace: true });
+      }
+      return;
+    }
+
+    const fallbackSlug = visibleCategories[0].slug;
+    if (!activeCategorySlug || !visibleCategories.some((c) => c.slug === activeCategorySlug)) {
+      setActiveCategorySlug(fallbackSlug);
+      searchParams.set('type', fallbackSlug);
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, visibleCategories, activeCategorySlug, setSearchParams]);
 
   const orderedSections = useMemo(() => {
     const resolvedActiveSlug = activeCategorySlug || categoryList[0]?.slug;
