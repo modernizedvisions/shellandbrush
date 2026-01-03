@@ -4,7 +4,6 @@ import { useForm } from 'react-hook-form';
 import { AdminSectionHeader } from './AdminSectionHeader';
 import {
   removeAdminCustomOrderImage,
-  updateAdminCustomOrder,
   uploadAdminCustomOrderImage,
 } from '../../lib/db/customOrders';
 
@@ -37,15 +36,7 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
   const [createImageError, setCreateImageError] = useState<string | null>(null);
   const [isImageBusy, setIsImageBusy] = useState(false);
   const [imageActionError, setImageActionError] = useState<string | null>(null);
-  const [editShippingInput, setEditShippingInput] = useState('');
-  const [isSavingShipping, setIsSavingShipping] = useState(false);
-  const [shippingActionError, setShippingActionError] = useState<string | null>(null);
   const shippingTooltip = 'Shipping is a flat per-order fee for custom orders.';
-  const formatDollars = (cents: number | null | undefined) => ((cents ?? 0) / 100).toFixed(2);
-  const normalizeShippingCents = (value: string) => {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) : 0;
-  };
   const createImageInputRef = useRef<HTMLInputElement | null>(null);
   const viewImageInputRef = useRef<HTMLInputElement | null>(null);
   const draftDefaults = useMemo(() => {
@@ -93,25 +84,18 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
     }
   }, [isModalOpen, reset]);
 
-  useEffect(() => {
-    if (!selectedOrder) return;
-    setEditShippingInput(formatDollars(selectedOrder.shippingCents ?? 0));
-  }, [selectedOrder]);
-
   if (import.meta.env.DEV) {
     console.debug('[custom orders tab] render', { count: allCustomOrders.length });
   }
 
   const openView = (order: any) => {
     setSelectedOrder(order);
-    setEditShippingInput(formatDollars(order?.shippingCents ?? 0));
     setIsViewOpen(true);
   };
 
   const closeView = () => {
     setIsViewOpen(false);
     setSelectedOrder(null);
-    setEditShippingInput('');
   };
 
   const formatCurrency = (cents: number | null | undefined) => `$${((cents ?? 0) / 100).toFixed(2)}`;
@@ -179,29 +163,6 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
       setIsImageBusy(false);
     }
   };
-  const handleSaveShipping = async () => {
-    if (!selectedOrder) return;
-    setIsSavingShipping(true);
-    setShippingActionError(null);
-    try {
-      const shippingCents = normalizeShippingCents(editShippingInput);
-      await updateAdminCustomOrder(selectedOrder.id, { shippingCents });
-      setSelectedOrder((prev: any) =>
-        prev
-          ? {
-              ...prev,
-              shippingCents,
-            }
-          : prev
-      );
-      await onReloadOrders?.();
-    } catch (err) {
-      setShippingActionError(err instanceof Error ? err.message : 'Failed to update shipping.');
-    } finally {
-      setIsSavingShipping(false);
-    }
-  };
-
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
       <div className="space-y-3">
@@ -315,16 +276,8 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
 
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
         {selectedOrder && (
-          <DialogContent className="w-full max-w-xl rounded-2xl bg-white shadow-xl border border-slate-100 p-6">
-            <button
-              type="button"
-              onClick={closeView}
-              className="absolute right-3 top-3 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
-            >
-              CLOSE
-            </button>
-
-            <div className="space-y-5">
+          <DialogContent className="w-full max-w-2xl max-h-[85vh] rounded-2xl bg-white shadow-xl border border-slate-100 p-0 overflow-hidden flex flex-col">
+            <div className="sticky top-0 z-10 bg-white border-b border-slate-100 px-6 py-4 flex items-start justify-between">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-1">Custom Order</p>
                 <div className="text-xl font-semibold text-slate-900">
@@ -334,7 +287,16 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                   Placed {safeDate(selectedOrder.createdAt || selectedOrder.created_at)}
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={closeView}
+                className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+              >
+                CLOSE
+              </button>
+            </div>
 
+            <div className="flex-1 overflow-y-auto px-6 py-5">
               <div className="grid grid-cols-1 gap-4">
                 <section className="rounded-lg border border-slate-200 p-4">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-1.5">Customer</p>
@@ -404,39 +366,6 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                       </span>
                     </div>
                   </div>
-                  <div className="mt-3">
-                    <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                      Shipping Fee
-                      <span
-                        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 text-[10px] text-slate-500"
-                        title={shippingTooltip}
-                        aria-label={shippingTooltip}
-                      >
-                        ?
-                      </span>
-                    </label>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={editShippingInput}
-                        onChange={(event) => setEditShippingInput(event.target.value)}
-                        className="w-32 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleSaveShipping}
-                        disabled={isSavingShipping}
-                        className="rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
-                      >
-                        {isSavingShipping ? 'Saving...' : 'Update Shipping'}
-                      </button>
-                    </div>
-                    {shippingActionError && (
-                      <div className="mt-2 text-xs text-red-600">{shippingActionError}</div>
-                    )}
-                  </div>
                 </section>
 
                 <section className="rounded-lg border border-slate-200 p-4">
@@ -446,15 +375,15 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                   </div>
                 </section>
 
-                                <section className="rounded-lg border border-slate-200 p-4">
+                <section className="rounded-lg border border-slate-200 p-4">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-2">Image</p>
                   <div className="flex flex-col gap-3">
-                    <div className="aspect-square w-full max-w-[280px] overflow-hidden rounded-lg bg-slate-50 border border-slate-200">
+                    <div className="h-56 sm:h-64 md:h-72 w-full overflow-hidden rounded-lg bg-slate-50 border border-slate-200">
                       {selectedOrder.imageUrl ? (
                         <img
                           src={selectedOrder.imageUrl}
                           alt="Custom order"
-                          className="h-full w-full object-cover"
+                          className="h-full w-full object-contain"
                         />
                       ) : (
                         <div className="h-full w-full flex items-center justify-center text-sm text-slate-500">
@@ -498,7 +427,7 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                     )}
                   </div>
                 </section>
-<section className="rounded-lg border border-slate-200 p-4">
+                <section className="rounded-lg border border-slate-200 p-4">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-2">Payment Link</p>
                   {selectedOrder.paymentLink ? (
                     <div className="flex items-center gap-3 flex-wrap">
@@ -612,7 +541,7 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                 />
               </div>
 
-                            <div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Image</label>
                 <div
                   className="flex flex-col items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-600"
