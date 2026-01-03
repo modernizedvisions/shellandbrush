@@ -1860,6 +1860,7 @@ async function insertStandardOrderAndItems(args: {
 function formatOrderDate(date: Date): string {
   try {
     return date.toLocaleDateString('en-US', {
+      timeZone: 'America/New_York',
       year: 'numeric',
       month: 'long',
       day: 'numeric',

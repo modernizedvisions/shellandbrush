@@ -2,6 +2,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useForm } from 'react-hook-form';
 import { AdminSectionHeader } from './AdminSectionHeader';
+import { formatDateTimeEastern } from '../../lib/date';
 import {
   removeAdminCustomOrderImage,
   uploadAdminCustomOrderImage,
@@ -99,7 +100,8 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
   };
 
   const formatCurrency = (cents: number | null | undefined) => `$${((cents ?? 0) / 100).toFixed(2)}`;
-  const safeDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : 'Unknown date');
+  const safeDate = (value?: string | null) =>
+    value ? formatDateTimeEastern(value) : 'Unknown date';
   const normalizeDisplayId = (order: any) =>
     order.displayCustomOrderId || order.display_custom_order_id || order.id || 'Order';
   const handleCreateImageSelected = (file: File) => {
@@ -276,7 +278,7 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
 
       {isViewOpen && selectedOrder && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-3 py-6">
-          <div className="relative w-full max-w-xl rounded-2xl bg-white shadow-xl border border-slate-100 p-6">
+          <div className="relative w-full max-w-xl max-h-[calc(100vh-3rem)] rounded-2xl bg-white shadow-xl border border-slate-100 p-6 overflow-hidden flex flex-col">
             <button
               type="button"
               onClick={closeView}
@@ -285,17 +287,17 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
               CLOSE
             </button>
 
-            <div className="space-y-5">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-1">Custom Order</p>
-                <div className="text-xl font-semibold text-slate-900">
-                  Order {normalizeDisplayId(selectedOrder)}
-                </div>
-                <p className="text-sm text-slate-600">
-                  Placed {safeDate(selectedOrder.createdAt || selectedOrder.created_at)}
-                </p>
+            <div className="pb-4">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-1">Custom Order</p>
+              <div className="text-xl font-semibold text-slate-900">
+                Order {normalizeDisplayId(selectedOrder)}
               </div>
+              <p className="text-sm text-slate-600">
+                Placed {safeDate(selectedOrder.createdAt || selectedOrder.created_at)}
+              </p>
+            </div>
 
+            <div className="overflow-y-auto pr-1">
               <div className="grid grid-cols-1 gap-4">
                 <section className="rounded-lg border border-slate-200 p-4">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-1.5">Customer</p>

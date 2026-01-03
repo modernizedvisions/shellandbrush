@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { AdminOrder } from '../../lib/db/orders';
+import { formatDateTimeEastern } from '../../lib/date';
 
 interface OrderDetailsModalProps {
   open: boolean;
@@ -16,7 +17,7 @@ export function OrderDetailsModal({ open, order, onClose }: OrderDetailsModalPro
   if (!open || !order) return null;
 
   const idLabel = order.displayOrderId || order.id?.slice(0, 8) || 'Order';
-  const placedAt = order.createdAt ? new Date(order.createdAt).toLocaleString() : 'Unknown date';
+  const placedAt = order.createdAt ? formatDateTimeEastern(order.createdAt) : 'Unknown date';
   const customerName = order.shippingName || order.customerName || 'Customer';
   const customerEmail = order.customerEmail || 'No email provided';
 
@@ -110,7 +111,7 @@ export function OrderDetailsModal({ open, order, onClose }: OrderDetailsModalPro
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-3 py-6">
-      <div className="relative w-full max-w-xl rounded-2xl bg-white shadow-xl border border-slate-100 p-6">
+      <div className="relative w-full max-w-xl max-h-[calc(100vh-3rem)] rounded-2xl bg-white shadow-xl border border-slate-100 p-6 overflow-hidden flex flex-col">
         <button
           type="button"
           onClick={onClose}
@@ -119,13 +120,13 @@ export function OrderDetailsModal({ open, order, onClose }: OrderDetailsModalPro
           CLOSE
         </button>
 
-        <div className="space-y-5">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-1">Order</p>
-            <div className="text-xl font-semibold text-slate-900">Order {idLabel}</div>
-            <p className="text-sm text-slate-600">Placed {placedAt}</p>
-          </div>
+        <div className="pb-4">
+          <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-1">Order</p>
+          <div className="text-xl font-semibold text-slate-900">Order {idLabel}</div>
+          <p className="text-sm text-slate-600">Placed {placedAt}</p>
+        </div>
 
+        <div className="overflow-y-auto pr-1">
           <div className="grid grid-cols-1 gap-4">
             <section className="rounded-lg border border-slate-200 p-4">
               <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-1.5">Customer</p>

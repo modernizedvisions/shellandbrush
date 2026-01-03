@@ -186,7 +186,11 @@ function formatAddress(address: EmailAddress) {
 }
 
 function formatDate(date: Date) {
-  return date.toISOString();
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
 }
 
 function escapeHtml(value: string) {

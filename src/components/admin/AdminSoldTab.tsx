@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatDateEastern } from '../../lib/date';
 import type { Product } from '../../lib/types';
 import { AdminSectionHeader } from './AdminSectionHeader';
 
@@ -28,7 +29,7 @@ export function AdminSoldTab({ soldProducts }: AdminSoldTabProps) {
               <div className="p-4">
                 <h3 className="font-medium text-gray-900 mb-1">{product.name}</h3>
                 <p className="text-sm text-gray-500">
-                  {product.soldAt ? `Sold on ${new Date(product.soldAt).toLocaleDateString()}` : 'Sold'}
+                  {product.soldAt ? `Sold on ${formatDateEastern(product.soldAt)}` : 'Sold'}
                 </p>
               </div>
             </div>

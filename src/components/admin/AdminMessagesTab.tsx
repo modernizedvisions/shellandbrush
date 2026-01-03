@@ -6,6 +6,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { adminDeleteMessage } from '../../lib/api';
 import { adminFetch } from '../../lib/adminAuth';
 import { AdminSectionHeader } from './AdminSectionHeader';
+import { formatDateTimeEastern } from '../../lib/date';
 
 interface AdminMessage {
   id: string;
@@ -141,7 +142,7 @@ export const AdminMessagesTab: React.FC<AdminMessagesTabProps> = ({ onCreateCust
               {sortedMessages.map((msg) => (
                 <tr key={msg.id || `${msg.email}-${msg.createdAt}`}>
                   <td className="px-4 py-2 text-sm text-gray-700">
-                    {msg.createdAt ? new Date(msg.createdAt).toLocaleString() : '-'}
+                    {msg.createdAt ? formatDateTimeEastern(msg.createdAt) : '-'}
                   </td>
                   <td className="px-4 py-2 text-sm text-gray-900">{msg.name || 'Unknown'}</td>
                   <td className="px-4 py-2 text-sm text-gray-900">{msg.email || '-'}</td>
