@@ -255,14 +255,14 @@ export const onRequestPost = async (context: {
                   const shippingCentsFromStripe = (session.total_details as any)?.amount_shipping ?? null;
       const amountShipping = Number(shippingCentsFromStripe);
       const hasStripeShipping = shippingCentsFromStripe !== null && shippingCentsFromStripe !== undefined;
-      const shippingFromLines = extractShippingCentsFromLineItems(rawLineItems);
+      const shippingFromLineItems = extractShippingCentsFromLineItems(rawLineItems);
       const shippingFromMetadataRaw = (session.metadata as any)?.shipping_cents ?? null;
       const shippingFromMetadata = Number(shippingFromMetadataRaw);
       const inferredShipping =
         hasStripeShipping && Number.isFinite(amountShipping)
           ? amountShipping
-          : shippingFromLines > 0
-          ? shippingFromLines
+          : shippingFromLineItems > 0
+          ? shippingFromLineItems
           : Number.isFinite(shippingFromMetadata)
           ? shippingFromMetadata
           : 0;
