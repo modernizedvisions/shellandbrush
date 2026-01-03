@@ -1,21 +1,39 @@
+﻿import { useEffect, useState } from 'react';
 import { X, Minus, Plus, Trash2 } from 'lucide-react';
 import { useCartStore } from '../../store/cartStore';
 import { useUIStore } from '../../store/uiStore';
 import { useNavigate } from 'react-router-dom';
-import { calculateShippingCents } from '../../lib/shipping';
+import { fetchCategories } from '../../lib/api';
+import { calculateShippingCentsForCart } from '../../lib/shipping';
+import type { Category } from '../../lib/types';
 
 export function CartDrawer() {
   const isOpen = useUIStore((state) => state.isCartDrawerOpen);
+  const [categories, setCategories] = useState<Category[]>([]);
   const setCartDrawerOpen = useUIStore((state) => state.setCartDrawerOpen);
   const items = useCartStore((state) => state.items);
   const removeItem = useCartStore((state) => state.removeItem);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
   const getSubtotal = useCartStore((state) => state.getSubtotal());
   const navigate = useNavigate();
+  useEffect(() => {
+    if (!isOpen) return;
+    let isMounted = true;
+    fetchCategories()
+      .then((data) => {
+        if (isMounted) setCategories(data);
+      })
+      .catch((error) => {
+        console.error('Failed to load categories for shipping', error);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const shippingCents = calculateShippingCents(getSubtotal);
+  const shippingCents = calculateShippingCentsForCart(items, categories);
   const totalCents = getSubtotal + shippingCents;
 
   const handleCheckout = () => {
@@ -131,3 +149,5 @@ export function CartDrawer() {
     </>
   );
 }
+
+

@@ -15,7 +15,6 @@ import {
 import { getPublicImagesBaseUrl } from '../_lib/imageBaseUrl';
 import { normalizePublicImageUrl, resolvePublicImageUrl } from '../_lib/imageUrls';
 import { resolveCustomEmailTotals, resolveStandardEmailTotals } from '../../_lib/emailTotals';
-import { calculateShippingCents } from '../../_lib/shipping';
 import {
   extractShippingCentsFromLineItems,
   filterNonShippingLineItems,
@@ -204,16 +203,21 @@ export const onRequestPost = async (context: {
       const customOrderId = session.metadata?.customOrderId;
       const customSource = session.metadata?.source === 'custom_order';
       const rawLineItems = session.line_items?.data || [];
-      const shippingCentsFromStripe = (session.total_details as any)?.amount_shipping ?? null;
+                  const shippingCentsFromStripe = (session.total_details as any)?.amount_shipping ?? null;
       const amountShipping = Number(shippingCentsFromStripe);
+      const hasStripeShipping = shippingCentsFromStripe !== null && shippingCentsFromStripe !== undefined;
       const shippingFromLines = extractShippingCentsFromLineItems(rawLineItems);
+      const shippingFromMetadataRaw = (session.metadata as any)?.shipping_cents ?? null;
+      const shippingFromMetadata = Number(shippingFromMetadataRaw);
       const inferredShipping =
-        Number.isFinite(amountShipping) && amountShipping > 0
+        hasStripeShipping && Number.isFinite(amountShipping)
           ? amountShipping
           : shippingFromLines > 0
           ? shippingFromLines
-          : calculateShippingCents(session.amount_subtotal ?? session.amount_total ?? 0);
-      const shippingCents = Number.isFinite(inferredShipping) ? Number(inferredShipping) : 0;
+          : Number.isFinite(shippingFromMetadata)
+          ? shippingFromMetadata
+          : 0;
+      const shippingCents = Number.isFinite(inferredShipping) ? Math.max(0, Number(inferredShipping)) : 0;
 
       if (invoiceId) {
         await handleCustomInvoicePayment({
@@ -868,6 +872,10 @@ async function ensureCustomOrdersSchema(db: D1Database) {
     payment_link TEXT,
     stripe_session_id TEXT,
     stripe_payment_intent_id TEXT,
+    paid_at TEXT,
+    image_url TEXT,
+    image_key TEXT,
+    image_updated_at TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );`).run();
 
@@ -884,6 +892,18 @@ async function ensureCustomOrdersSchema(db: D1Database) {
   }
   if (!names.includes('paid_at')) {
     await db.prepare(`ALTER TABLE custom_orders ADD COLUMN paid_at TEXT;`).run();
+  }
+  if (!names.includes('image_url')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN image_url TEXT;`).run();
+  }
+  if (!names.includes('image_key')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN image_key TEXT;`).run();
+  }
+  if (!names.includes('image_updated_at')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN image_updated_at TEXT;`).run();
+  }
+  if (!names.includes('shipping_cents')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN shipping_cents INTEGER DEFAULT 0;`).run();
   }
   const shippingCols = [
     'shipping_name',
@@ -907,6 +927,47 @@ async function ensureCustomOrdersSchema(db: D1Database) {
       }
     }
   }
+}
+
+async function ensureGalleryItemsSchema(db: D1Database) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS gallery_items (
+    id TEXT PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    image_url TEXT,
+    title TEXT,
+    hidden INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    sold_at TEXT
+  );`).run();
+
+  await db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_gallery_items_source ON gallery_items(source_type, source_id);`).run();
+  await db.prepare(`CREATE INDEX IF NOT EXISTS idx_gallery_items_status ON gallery_items(status);`).run();
+  await db.prepare(`CREATE INDEX IF NOT EXISTS idx_gallery_items_created_at ON gallery_items(created_at);`).run();
+}
+
+async function upsertCustomOrderGalleryItem(
+  db: D1Database,
+  args: { customOrderId: string; displayId: string; imageUrl: string | null; soldAt: string }
+) {
+  await ensureGalleryItemsSchema(db);
+  const title = `Custom Order ${args.displayId}`;
+  const hidden = args.imageUrl ? 0 : 1;
+  await db
+    .prepare(
+      `INSERT INTO gallery_items (
+         id, source_type, source_id, status, image_url, title, hidden, created_at, sold_at
+       ) VALUES (?, 'custom_order', ?, 'sold', ?, ?, ?, ?, ?)
+       ON CONFLICT(source_type, source_id) DO UPDATE SET
+         status = 'sold',
+         image_url = excluded.image_url,
+         title = COALESCE(excluded.title, gallery_items.title),
+         hidden = excluded.hidden,
+         sold_at = COALESCE(gallery_items.sold_at, excluded.sold_at)`
+    )
+    .bind(crypto.randomUUID(), args.customOrderId, args.imageUrl, title, hidden, args.soldAt, args.soldAt)
+    .run();
 }
 
 async function mapLineItemsToEmailItems(
@@ -1129,7 +1190,7 @@ async function handleCustomOrderPayment(args: {
     .prepare(
       `SELECT id, display_custom_order_id, customer_name, ${
         emailCol ? `${emailCol} AS customer_email` : 'NULL AS customer_email'
-      }, description, amount, payment_link, stripe_session_id, stripe_payment_intent_id,
+      }, description, amount, payment_link, stripe_session_id, stripe_payment_intent_id, image_url, paid_at,
          shipping_name, shipping_line1, shipping_line2, shipping_city, shipping_state, shipping_postal_code, shipping_country, shipping_phone
        FROM custom_orders WHERE id = ?`
     )
@@ -1144,6 +1205,8 @@ async function handleCustomOrderPayment(args: {
       payment_link: string | null;
       stripe_session_id?: string | null;
       stripe_payment_intent_id?: string | null;
+      image_url?: string | null;
+      paid_at?: string | null;
     }>();
 
   if (!customOrder) {
@@ -1161,6 +1224,8 @@ async function handleCustomOrderPayment(args: {
   const amount = customOrder.amount ?? 0;
   const totalCents = session.amount_total ?? amount + shippingCents;
   const description = customOrder.description || 'Custom order payment';
+  const paidAt = customOrder.paid_at || new Date().toISOString();
+  const customOrderImageUrl = resolvePublicImageUrl(customOrder.image_url || null, env);
   const shippingPhone =
     session.customer_details?.phone ||
     (paymentIntent?.shipping as any)?.phone ||
@@ -1194,7 +1259,7 @@ async function handleCustomOrderPayment(args: {
     .bind(
       paymentIntentId,
       session.id,
-      new Date().toISOString(),
+      paidAt,
       shippingName,
       shippingAddress?.line1 || null,
       shippingAddress?.line2 || null,
@@ -1209,6 +1274,13 @@ async function handleCustomOrderPayment(args: {
   if (!update.success) {
     console.error('[custom order] failed to update status', update.error);
   }
+
+  await upsertCustomOrderGalleryItem(db, {
+    customOrderId: customOrder.id,
+    displayId,
+    imageUrl: customOrderImageUrl || null,
+    soldAt: paidAt,
+  });
 
   if (customOrder.stripe_payment_intent_id || existingOrder) {
     console.log('[custom order] already processed', { displayId, existingOrder: existingOrder?.id });
@@ -1273,7 +1345,7 @@ async function handleCustomOrderPayment(args: {
         qty: 1,
         unitAmount: amount,
         lineTotal: amount,
-        imageUrl: null,
+        imageUrl: customOrderImageUrl || null,
       },
     ];
 
@@ -1342,7 +1414,7 @@ async function handleCustomOrderPayment(args: {
       name: customOrder.description || 'Custom order',
       qtyLabel: '',
       lineTotal: formatMoney(amount),
-      imageUrl: null,
+      imageUrl: customOrderImageUrl || null,
     },
   ];
   const totalsForOwner = resolveCustomEmailTotals({
@@ -1688,5 +1760,10 @@ function buildStripeDashboardUrl(
   if (paymentIntentId) return `${base}/payments/${paymentIntentId}`;
   return `${base}/checkout/sessions/${sessionId}`;
 }
+
+
+
+
+
 
 

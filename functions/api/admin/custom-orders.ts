@@ -1,4 +1,4 @@
-import { requireAdmin } from '../_lib/adminAuth';
+﻿import { requireAdmin } from '../_lib/adminAuth';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -25,6 +25,7 @@ type CustomOrderRow = {
   image_url?: string | null;
   image_key?: string | null;
   image_updated_at?: string | null;
+  shipping_cents?: number | null;
   shipping_name?: string | null;
   shipping_line1?: string | null;
   shipping_line2?: string | null;
@@ -42,9 +43,15 @@ type CustomOrderPayload = {
   customerEmail: string;
   description: string;
   amount?: number;
+  shippingCents?: number;
   messageId?: string | null;
   status?: 'pending' | 'paid';
   paymentLink?: string | null;
+};
+
+const normalizeShippingCents = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : 0;
 };
 
 export async function onRequestGet(context: { env: { DB: D1Database; ADMIN_PASSWORD?: string }; request: Request }): Promise<Response> {
@@ -60,7 +67,7 @@ export async function onRequestGet(context: { env: { DB: D1Database; ADMIN_PASSW
       `SELECT id, display_custom_order_id, customer_name, ${
         emailCol ? `${emailCol} AS customer_email` : 'NULL AS customer_email'
       }, description, amount, message_id, status, payment_link, image_url, image_key, image_updated_at,
-        shipping_name, shipping_line1, shipping_line2, shipping_city, shipping_state, shipping_postal_code, shipping_country, shipping_phone,
+        shipping_cents, shipping_name, shipping_line1, shipping_line2, shipping_city, shipping_state, shipping_postal_code, shipping_country, shipping_phone,
         paid_at, created_at
        FROM custom_orders
        ORDER BY datetime(created_at) DESC`
@@ -92,6 +99,7 @@ export async function onRequestPost(context: { env: { DB: D1Database; ADMIN_PASS
     const id = crypto.randomUUID();
     const createdAt = new Date().toISOString();
     const status = body.status === 'paid' ? 'paid' : 'pending';
+    const shippingCents = normalizeShippingCents(body.shippingCents);
     const displayId = await generateDisplayCustomOrderId(context.env.DB);
 
     const insertColumns = [
@@ -104,6 +112,7 @@ export async function onRequestPost(context: { env: { DB: D1Database; ADMIN_PASS
       'message_id',
       'status',
       'payment_link',
+      'shipping_cents',
       'shipping_name',
       'shipping_line1',
       'shipping_line2',
@@ -129,6 +138,7 @@ export async function onRequestPost(context: { env: { DB: D1Database; ADMIN_PASS
       body.messageId ?? null,
       status,
       body.paymentLink ?? null,
+      shippingCents,
       null,
       null,
       null,
@@ -161,6 +171,7 @@ export async function onRequestPost(context: { env: { DB: D1Database; ADMIN_PASS
       message_id: body.messageId ?? null,
       status,
       payment_link: body.paymentLink ?? null,
+      shipping_cents: shippingCents,
       created_at: createdAt,
     };
 
@@ -201,6 +212,7 @@ async function ensureCustomOrdersSchema(db: D1Database) {
     shipping_postal_code TEXT,
     shipping_country TEXT,
     shipping_phone TEXT,
+    shipping_cents INTEGER DEFAULT 0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );`).run();
 
@@ -231,6 +243,9 @@ async function ensureCustomOrdersSchema(db: D1Database) {
   }
   if (!names.includes('image_updated_at')) {
     await db.prepare(`ALTER TABLE custom_orders ADD COLUMN image_updated_at TEXT;`).run();
+  }
+  if (!names.includes('shipping_cents')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN shipping_cents INTEGER DEFAULT 0;`).run();
   }
   const shippingColumns = [
     'shipping_name',
@@ -294,6 +309,7 @@ function mapRow(row: CustomOrderRow) {
     imageUpdatedAt: row.image_updated_at ?? null,
     createdAt: row.created_at ?? null,
     paidAt: row.paid_at ?? null,
+    shippingCents: row.shipping_cents ?? 0,
     shippingAddress,
     shippingName: row.shipping_name ?? null,
   };
@@ -376,3 +392,4 @@ async function backfillDisplayCustomOrderIds(db: D1Database) {
     throw error;
   }
 }
+

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { Loader2, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { adminCreateCategory, adminDeleteCategory, adminFetchCategories, adminUpdateCategory } from '../../lib/api';
@@ -50,12 +50,25 @@ export function CategoryManagementModal({
 }: CategoryManagementModalProps) {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryDescription, setNewCategoryDescription] = useState('');
+  const [newCategoryShipping, setNewCategoryShipping] = useState('0');
   const [categoryMessage, setCategoryMessage] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [editShipping, setEditShipping] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  const shippingTooltip =
+    'Shipping is a flat order fee based on the lowest shipping amount among categories in the cart. If any item\'s category has $0 shipping, the whole order ships free.';
+  const normalizeShippingCents = (value: string) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) : 0;
+  };
+  const formatShippingDollars = (value?: number | null) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? (parsed / 100).toFixed(2) : '0.00';
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -79,13 +92,15 @@ export function CategoryManagementModal({
     const trimmed = newCategoryName.trim();
     if (!trimmed) return;
     try {
-      const created = await adminCreateCategory(trimmed, newCategoryDescription.trim());
+      const shippingCents = normalizeShippingCents(newCategoryShipping);
+      const created = await adminCreateCategory(trimmed, newCategoryDescription.trim(), shippingCents);
       if (created) {
         const updated = normalizeCategoriesList([...categories, created]);
         onCategoriesChange(updated);
         onCategorySelected?.(created.name);
         setNewCategoryName('');
         setNewCategoryDescription('');
+        setNewCategoryShipping('0');
         setCategoryMessage('');
       }
     } catch (error) {
@@ -115,12 +130,14 @@ export function CategoryManagementModal({
     setEditingId(cat.id);
     setEditName(cat.name || '');
     setEditDescription(cat.description || '');
+    setEditShipping(formatShippingDollars(cat.shippingCents));
   };
 
   const handleCancelEdit = () => {
     setEditingId(null);
     setEditName('');
     setEditDescription('');
+    setEditShipping('');
   };
 
   const handleSaveEdit = async (cat: Category) => {
@@ -128,14 +145,14 @@ export function CategoryManagementModal({
     if (!name) return;
     setIsSavingEdit(true);
     try {
+      const shippingCents = normalizeShippingCents(editShipping);
       const updated = await adminUpdateCategory(cat.id, {
         name,
         description: editDescription.trim() || null,
+        shippingCents,
       });
       if (updated) {
-        const next = normalizeCategoriesList(
-          categories.map((item) => (item.id === cat.id ? updated : item))
-        );
+        const next = normalizeCategoriesList(categories.map((item) => (item.id === cat.id ? updated : item)));
         onCategoriesChange(next);
         onCategorySelected?.(updated.name);
       }
@@ -163,9 +180,7 @@ export function CategoryManagementModal({
           <DialogTitle className="text-center text-lg font-semibold tracking-[0.15em] uppercase text-slate-900">
             Category Management
           </DialogTitle>
-          <p className="text-center text-sm text-slate-600">
-            Add or delete categories available to products.
-          </p>
+          <p className="text-center text-sm text-slate-600">Add or delete categories available to products.</p>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -190,6 +205,27 @@ export function CategoryManagementModal({
               placeholder="Category subtitle (optional)"
               className="w-full max-w-xs rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
             />
+            <div className="w-full max-w-xs space-y-1">
+              <label className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-slate-500">
+                Shipping
+                <span
+                  className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 text-[10px] text-slate-500"
+                  title={shippingTooltip}
+                  aria-label={shippingTooltip}
+                >
+                  ?
+                </span>
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={newCategoryShipping}
+                onChange={(e) => setNewCategoryShipping(e.target.value)}
+                placeholder="0.00"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+              />
+            </div>
             <button
               type="button"
               onClick={handleAddCategory}
@@ -252,6 +288,27 @@ export function CategoryManagementModal({
                           placeholder="Category subtitle (optional)"
                           className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                         />
+                        <div className="space-y-1">
+                          <label className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-slate-500">
+                            Shipping
+                            <span
+                              className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 text-[10px] text-slate-500"
+                              title={shippingTooltip}
+                              aria-label={shippingTooltip}
+                            >
+                              ?
+                            </span>
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={editShipping}
+                            onChange={(e) => setEditShipping(e.target.value)}
+                            placeholder="0.00"
+                            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                          />
+                        </div>
                         <div className="flex items-center gap-2">
                           <button
                             type="button"

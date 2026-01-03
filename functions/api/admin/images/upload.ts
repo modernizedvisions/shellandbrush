@@ -20,7 +20,7 @@ type Env = {
 const BUILD_FINGERPRINT = 'upload-fingerprint-2025-12-21-a';
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const ALLOWED_SCOPES = new Set(['products', 'gallery', 'home', 'categories']);
+const ALLOWED_SCOPES = new Set(['products', 'gallery', 'home', 'categories', 'custom-orders']);
 
 const corsHeaders = () => ({
   'Access-Control-Allow-Origin': '*',

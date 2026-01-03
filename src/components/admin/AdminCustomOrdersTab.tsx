@@ -1,11 +1,16 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useForm } from 'react-hook-form';
 import { AdminSectionHeader } from './AdminSectionHeader';
+import {
+  removeAdminCustomOrderImage,
+  updateAdminCustomOrder,
+  uploadAdminCustomOrderImage,
+} from '../../lib/db/customOrders';
 
 interface AdminCustomOrdersTabProps {
   allCustomOrders: any[];
-  onCreateOrder: (data: any) => Promise<void> | void;
+  onCreateOrder: (data: any) => Promise<any>;
   onReloadOrders?: () => Promise<void> | void;
   onSendPaymentLink?: (id: string) => Promise<void> | void;
   initialDraft?: any;
@@ -27,6 +32,13 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [createImageFile, setCreateImageFile] = useState<File | null>(null);
+  const [createImagePreview, setCreateImagePreview] = useState<string | null>(null);
+  const [createImageError, setCreateImageError] = useState<string | null>(null);
+  const [isImageBusy, setIsImageBusy] = useState(false);
+  const [imageActionError, setImageActionError] = useState<string | null>(null);
+  const createImageInputRef = useRef<HTMLInputElement | null>(null);
+  const viewImageInputRef = useRef<HTMLInputElement | null>(null);
   const draftDefaults = useMemo(() => {
     if (!initialDraft) return undefined;
     return {
@@ -34,6 +46,7 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
       customerEmail: initialDraft.customerEmail || '',
       description: initialDraft.description || '',
       amount: initialDraft.amount ?? '',
+      shipping: initialDraft.shipping ?? '',
     };
   }, [initialDraft]);
 
@@ -43,6 +56,7 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
       customerEmail: '',
       description: '',
       amount: '',
+      shipping: '',
     },
   });
 
@@ -61,9 +75,19 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
         customerEmail: '',
         description: '',
         amount: '',
+        shipping: '',
       });
+      if (createImagePreview) URL.revokeObjectURL(createImagePreview);
+      setCreateImageFile(null);
+      setCreateImagePreview(null);
+      setCreateImageError(null);
     }
   }, [isModalOpen, reset]);
+
+  useEffect(() => {
+    if (!selectedOrder) return;
+    setEditShippingInput(formatDollars(selectedOrder.shippingCents ?? 0));
+  }, [selectedOrder]);
 
   if (import.meta.env.DEV) {
     console.debug('[custom orders tab] render', { count: allCustomOrders.length });
@@ -71,18 +95,103 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
 
   const openView = (order: any) => {
     setSelectedOrder(order);
+    setEditShippingInput(formatDollars(order?.shippingCents ?? 0));
     setIsViewOpen(true);
   };
 
   const closeView = () => {
     setIsViewOpen(false);
     setSelectedOrder(null);
+    setEditShippingInput('');
   };
 
   const formatCurrency = (cents: number | null | undefined) => `$${((cents ?? 0) / 100).toFixed(2)}`;
   const safeDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : 'Unknown date');
   const normalizeDisplayId = (order: any) =>
     order.displayCustomOrderId || order.display_custom_order_id || order.id || 'Order';
+  const handleCreateImageSelected = (file: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setCreateImageError('Please select an image file.');
+      return;
+    }
+    if (createImagePreview) URL.revokeObjectURL(createImagePreview);
+    setCreateImageFile(file);
+    setCreateImagePreview(URL.createObjectURL(file));
+    setCreateImageError(null);
+  };
+
+  const handleViewImageSelected = async (file: File) => {
+    if (!selectedOrder || !file) return;
+    setIsImageBusy(true);
+    setImageActionError(null);
+    try {
+      const result = await uploadAdminCustomOrderImage(selectedOrder.id, file);
+      setSelectedOrder((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              imageUrl: result.imageUrl,
+              imageKey: result.imageKey ?? null,
+              imageUpdatedAt: result.imageUpdatedAt ?? null,
+            }
+          : prev
+      );
+      await onReloadOrders?.();
+    } catch (err) {
+      setImageActionError(err instanceof Error ? err.message : 'Image upload failed.');
+    } finally {
+      setIsImageBusy(false);
+    }
+  };
+
+  const handleRemoveImage = async () => {
+    if (!selectedOrder) return;
+    const confirmed = window.confirm('Remove this image from the custom order?');
+    if (!confirmed) return;
+    setIsImageBusy(true);
+    setImageActionError(null);
+    try {
+      await removeAdminCustomOrderImage(selectedOrder.id);
+      setSelectedOrder((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              imageUrl: null,
+              imageKey: null,
+              imageUpdatedAt: null,
+            }
+          : prev
+      );
+      await onReloadOrders?.();
+    } catch (err) {
+      setImageActionError(err instanceof Error ? err.message : 'Failed to remove image.');
+    } finally {
+      setIsImageBusy(false);
+    }
+  };
+  const handleSaveShipping = async () => {
+    if (!selectedOrder) return;
+    setIsSavingShipping(true);
+    setShippingActionError(null);
+    try {
+      const shippingCents = normalizeShippingCents(editShippingInput);
+      await updateAdminCustomOrder(selectedOrder.id, { shippingCents });
+      setSelectedOrder((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              shippingCents,
+            }
+          : prev
+      );
+      await onReloadOrders?.();
+    } catch (err) {
+      setShippingActionError(err instanceof Error ? err.message : 'Failed to update shipping.');
+    } finally {
+      setIsSavingShipping(false);
+    }
+  };
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
@@ -95,7 +204,7 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
           <button
             type="button"
             onClick={() => {
-              reset(draftDefaults || { customerName: '', customerEmail: '', description: '', amount: '' });
+              reset(draftDefaults || { customerName: '', customerEmail: '', description: '', amount: '', shipping: '' });
               setIsModalOpen(true);
             }}
             className="rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
@@ -142,7 +251,7 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
               <tbody className="divide-y divide-gray-200 bg-white text-gray-900">
                 {allCustomOrders.map((order) => {
                   const amount = typeof order.amount === 'number' ? order.amount : null;
-                  const amountLabel = amount !== null ? `$${(amount / 100).toFixed(2)}` : '—';
+                  const amountLabel = amount !== null ? `$${(amount / 100).toFixed(2)}` : '�';
                   const statusLabel = order.status || 'pending';
                   const displayId = normalizeDisplayId(order);
                   const hasPaymentLink = !!order.paymentLink;
@@ -150,7 +259,7 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                     <tr key={order.id}>
                       <td className="px-4 py-2 font-mono text-xs text-gray-700">{displayId}</td>
                       <td className="px-4 py-2">{order.customerName || 'Customer'}</td>
-                      <td className="px-4 py-2">{order.customerEmail || '—'}</td>
+                      <td className="px-4 py-2">{order.customerEmail || '�'}</td>
                       <td className="px-4 py-2">{amountLabel}</td>
                       <td className="px-4 py-2 capitalize">{statusLabel}</td>
                       <td className="px-4 py-2 text-xs">
@@ -165,7 +274,7 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                             Link
                           </a>
                         ) : (
-                          '—'
+                          '�'
                         )}
                       </td>
                       <td className="px-4 py-2 text-right space-x-2">
@@ -268,22 +377,119 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                   <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-2">Totals</p>
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-600">Total</span>
+                      <span className="text-slate-600">Subtotal</span>
                       <span className="font-medium text-slate-900">
-                        {typeof selectedOrder.amount === 'number' ? formatCurrency(selectedOrder.amount) : '—'}
+                        {typeof selectedOrder.amount === 'number' ? formatCurrency(selectedOrder.amount) : '-'}
                       </span>
                     </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600">Shipping</span>
+                      <span className="font-medium text-slate-900">
+                        {formatCurrency(selectedOrder.shippingCents ?? 0)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between border-t border-slate-200 pt-2">
+                      <span className="text-slate-900 font-medium">Total</span>
+                      <span className="font-semibold text-slate-900">
+                        {formatCurrency((selectedOrder.amount ?? 0) + (selectedOrder.shippingCents ?? 0))}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                      Shipping Fee
+                      <span
+                        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 text-[10px] text-slate-500"
+                        title={shippingTooltip}
+                        aria-label={shippingTooltip}
+                      >
+                        ?
+                      </span>
+                    </label>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={editShippingInput}
+                        onChange={(event) => setEditShippingInput(event.target.value)}
+                        className="w-32 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveShipping}
+                        disabled={isSavingShipping}
+                        className="rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                      >
+                        {isSavingShipping ? 'Saving...' : 'Update Shipping'}
+                      </button>
+                    </div>
+                    {shippingActionError && (
+                      <div className="mt-2 text-xs text-red-600">{shippingActionError}</div>
+                    )}
                   </div>
                 </section>
 
                 <section className="rounded-lg border border-slate-200 p-4">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-2">Message</p>
                   <div className="text-sm text-slate-900 whitespace-pre-wrap">
-                    {selectedOrder.description || '—'}
+                    {selectedOrder.description || '�'}
                   </div>
                 </section>
 
-                <section className="rounded-lg border border-slate-200 p-4">
+                                <section className="rounded-lg border border-slate-200 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-2">Image</p>
+                  <div className="flex flex-col gap-3">
+                    <div className="aspect-square w-full max-w-[280px] overflow-hidden rounded-lg bg-slate-50 border border-slate-200">
+                      {selectedOrder.imageUrl ? (
+                        <img
+                          src={selectedOrder.imageUrl}
+                          alt="Custom order"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center text-sm text-slate-500">
+                          No image uploaded.
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                        onClick={() => viewImageInputRef.current?.click()}
+                        disabled={isImageBusy}
+                      >
+                        {selectedOrder.imageUrl ? "Replace Image" : "Upload Image"}
+                      </button>
+                      <input
+                        ref={viewImageInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) void handleViewImageSelected(file);
+                          if (event.target) event.target.value = "";
+                        }}
+                      />
+                      {selectedOrder.imageUrl && (
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-slate-400 disabled:opacity-60"
+                          onClick={handleRemoveImage}
+                          disabled={isImageBusy}
+                        >
+                          Remove Image
+                        </button>
+                      )}
+                    </div>
+                    {imageActionError && (
+                      <div className="text-xs text-red-600">{imageActionError}</div>
+                    )}
+                  </div>
+                </section>
+<section className="rounded-lg border border-slate-200 p-4">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-2">Payment Link</p>
                   {selectedOrder.paymentLink ? (
                     <div className="flex items-center gap-3 flex-wrap">
@@ -326,7 +532,16 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
             <form
               className="space-y-4"
               onSubmit={handleSubmit(async (values) => {
-                await onCreateOrder(values);
+                const created = await onCreateOrder(values);
+                if (createImageFile && created?.id) {
+                  try {
+                    setCreateImageError(null);
+                    await uploadAdminCustomOrderImage(created.id, createImageFile);
+                    await onReloadOrders?.();
+                  } catch (err) {
+                    setCreateImageError(err instanceof Error ? err.message : 'Image upload failed.');
+                  }
+                }
                 setIsModalOpen(false);
               })}
             >
@@ -368,7 +583,79 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                 />
               </div>
 
-              <div className="flex justify-end gap-3 pt-2">
+              <div>
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
+                  Shipping (USD)
+                  <span
+                    className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 text-[10px] text-slate-500"
+                    title={shippingTooltip}
+                    aria-label={shippingTooltip}
+                  >
+                    ?
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  {...register('shipping', { required: false })}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+
+                            <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Image</label>
+                <div
+                  className="flex flex-col items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-600"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const file = event.dataTransfer.files?.[0];
+                    if (file) handleCreateImageSelected(file);
+                  }}
+                >
+                  {createImagePreview ? (
+                    <img src={createImagePreview} alt="Preview" className="h-28 w-28 rounded-md object-cover" />
+                  ) : (
+                    <span>Drop an image here or use upload</span>
+                  )}
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                      onClick={() => createImageInputRef.current?.click()}
+                    >
+                      Upload Image
+                    </button>
+                    {createImageFile && (
+                      <button
+                        type="button"
+                        className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+                        onClick={() => {
+                          if (createImagePreview) URL.revokeObjectURL(createImagePreview);
+                          setCreateImageFile(null);
+                          setCreateImagePreview(null);
+                        }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    ref={createImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) handleCreateImageSelected(file);
+                      if (event.target) event.target.value = "";
+                    }}
+                  />
+                </div>
+                {createImageError && <div className="mt-2 text-xs text-red-600">{createImageError}</div>}
+              </div>
+<div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -391,3 +678,14 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
     </div>
   );
 };
+
+
+
+
+
+
+
+
+
+
+

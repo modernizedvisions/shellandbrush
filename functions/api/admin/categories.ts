@@ -24,6 +24,7 @@ type CategoryRow = {
   image_id?: string | null;
   hero_image_id?: string | null;
   show_on_homepage?: number | null;
+  shipping_cents?: number | null;
 };
 
 type Category = {
@@ -36,6 +37,7 @@ type Category = {
   imageId?: string;
   heroImageId?: string;
   showOnHomePage: boolean;
+  shippingCents?: number | null;
 };
 
 const BASE_CATEGORY_ORDER = [
@@ -47,6 +49,11 @@ const BASE_CATEGORY_ORDER = [
 
 const normalizeWithBase = (value: string | null | undefined, baseUrl: string) =>
   normalizePublicImageUrl(value, { PUBLIC_IMAGES_BASE_URL: baseUrl }, undefined);
+
+const normalizeShippingCents = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : 0;
+};
 
 const OTHER_ITEMS_CATEGORY = {
   id: 'other-items',
@@ -65,12 +72,14 @@ const createCategoriesTable = `
     image_id TEXT,
     hero_image_id TEXT,
     show_on_homepage INTEGER DEFAULT 0,
+    shipping_cents INTEGER DEFAULT 0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
 `;
 
 const REQUIRED_CATEGORY_COLUMNS: Record<string, string> = {
   show_on_homepage: 'show_on_homepage INTEGER DEFAULT 0',
+  shipping_cents: 'shipping_cents INTEGER DEFAULT 0',
   slug: 'slug TEXT',
   description: 'description TEXT',
   hero_image_url: 'hero_image_url TEXT',
@@ -137,7 +146,7 @@ export async function onRequest(context: {
 async function handleGet(db: D1Database, baseUrl: string): Promise<Response> {
   const { results } = await db
     .prepare(
-      `SELECT id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories`
+      `SELECT id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage, shipping_cents FROM categories`
     )
     .all<CategoryRow>();
   const rows = results || [];
@@ -160,6 +169,7 @@ async function handlePost(db: D1Database, request: Request, baseUrl: string): Pr
   const id = crypto.randomUUID();
   const description = body?.description ?? null;
   const showOnHomePage = !!body?.showOnHomePage;
+  const shippingCents = normalizeShippingCents(body?.shippingCents);
   const imageUrl = body?.imageUrl || null;
   const heroImageUrl = body?.heroImageUrl || null;
   const imageId = body?.imageId || null;
@@ -182,8 +192,8 @@ async function handlePost(db: D1Database, request: Request, baseUrl: string): Pr
 
   const result = await db
     .prepare(
-      `INSERT INTO categories (id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`
+      `INSERT INTO categories (id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage, shipping_cents)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
     )
     .bind(
       id,
@@ -194,7 +204,8 @@ async function handlePost(db: D1Database, request: Request, baseUrl: string): Pr
       resolvedHeroImageUrl,
       imageId,
       heroImageId,
-      showOnHomePage ? 1 : 0
+      showOnHomePage ? 1 : 0,
+      shippingCents
     )
     .run();
 
@@ -202,7 +213,7 @@ async function handlePost(db: D1Database, request: Request, baseUrl: string): Pr
 
   const created = await db
     .prepare(
-      `SELECT id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories WHERE id = ?;`
+      `SELECT id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage, shipping_cents FROM categories WHERE id = ?;`
     )
     .bind(id)
     .first<CategoryRow>();
@@ -243,6 +254,7 @@ async function handlePut(db: D1Database, request: Request, baseUrl: string): Pro
   if (body.imageId !== undefined) addSet('image_id = ?', body.imageId || null);
   if (body.heroImageId !== undefined) addSet('hero_image_id = ?', body.heroImageId || null);
   if (body.showOnHomePage !== undefined) addSet('show_on_homepage = ?', body.showOnHomePage ? 1 : 0);
+  if (body.shippingCents !== undefined) addSet('shipping_cents = ?', normalizeShippingCents(body.shippingCents));
 
   if (hasBlockedUrls([body.imageUrl, body.heroImageUrl])) {
     return json({ error: 'Images must be uploaded first; only URLs allowed.' }, 413);
@@ -280,7 +292,7 @@ async function handlePut(db: D1Database, request: Request, baseUrl: string): Pro
 
   const updated = await db
     .prepare(
-      `SELECT id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories WHERE id = ?;`
+      `SELECT id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage, shipping_cents FROM categories WHERE id = ?;`
     )
     .bind(id)
     .first<CategoryRow>();
@@ -362,6 +374,7 @@ const mapRowToCategory = (row: CategoryRow, imageUrlMap: Map<string, string>, no
     imageId: row.image_id || undefined,
     heroImageId: row.hero_image_id || undefined,
     showOnHomePage: row.show_on_homepage === 1,
+    shippingCents: row.shipping_cents ?? 0,
   };
 };
 
@@ -512,6 +525,8 @@ async function ensureOtherItemsCategory(db: D1Database) {
     return null;
   }
 }
+
+
 
 
 

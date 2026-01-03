@@ -1,4 +1,4 @@
-import { requireAdmin } from '../../_lib/adminAuth';
+﻿import { requireAdmin } from '../../_lib/adminAuth';
 
 type D1PreparedStatement = {
   all<T>(): Promise<{ results: T[] }>;
@@ -16,9 +16,18 @@ type CustomOrderPayload = {
   customerEmail?: string;
   description?: string;
   amount?: number | null;
+  shippingCents?: number | null;
   messageId?: string | null;
   status?: 'pending' | 'paid';
   paymentLink?: string | null;
+  imageUrl?: string | null;
+  imageKey?: string | null;
+  imageUpdatedAt?: string | null;
+};
+
+const normalizeShippingCents = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : 0;
 };
 
 export async function onRequestPatch(context: {
@@ -68,6 +77,10 @@ export async function onRequestPatch(context: {
       fields.push('amount = ?');
       values.push(body.amount);
     }
+    if (body.shippingCents !== undefined) {
+      fields.push('shipping_cents = ?');
+      values.push(normalizeShippingCents(body.shippingCents));
+    }
     if (body.messageId !== undefined) {
       fields.push('message_id = ?');
       values.push(body.messageId);
@@ -79,6 +92,18 @@ export async function onRequestPatch(context: {
     if (body.paymentLink !== undefined) {
       fields.push('payment_link = ?');
       values.push(body.paymentLink);
+    }
+    if (body.imageUrl !== undefined) {
+      fields.push('image_url = ?');
+      values.push(body.imageUrl);
+    }
+    if (body.imageKey !== undefined) {
+      fields.push('image_key = ?');
+      values.push(body.imageKey);
+    }
+    if (body.imageUpdatedAt !== undefined) {
+      fields.push('image_updated_at = ?');
+      values.push(body.imageUpdatedAt);
     }
 
     if (!fields.length) return jsonResponse({ error: 'No fields to update' }, 400);
@@ -114,6 +139,9 @@ async function ensureCustomOrdersSchema(db: D1Database) {
     status TEXT DEFAULT 'pending',
     payment_link TEXT,
     paid_at TEXT,
+    image_url TEXT,
+    image_key TEXT,
+    image_updated_at TEXT,
     shipping_name TEXT,
     shipping_line1 TEXT,
     shipping_line2 TEXT,
@@ -122,6 +150,7 @@ async function ensureCustomOrdersSchema(db: D1Database) {
     shipping_postal_code TEXT,
     shipping_country TEXT,
     shipping_phone TEXT,
+    shipping_cents INTEGER DEFAULT 0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );`).run();
 
@@ -138,6 +167,18 @@ async function ensureCustomOrdersSchema(db: D1Database) {
   }
   if (!names.includes('paid_at')) {
     await db.prepare(`ALTER TABLE custom_orders ADD COLUMN paid_at TEXT;`).run();
+  }
+  if (!names.includes('image_url')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN image_url TEXT;`).run();
+  }
+  if (!names.includes('image_key')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN image_key TEXT;`).run();
+  }
+  if (!names.includes('image_updated_at')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN image_updated_at TEXT;`).run();
+  }
+  if (!names.includes('shipping_cents')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN shipping_cents INTEGER DEFAULT 0;`).run();
   }
   const shippingCols = [
     'shipping_name',
@@ -182,3 +223,4 @@ function jsonResponse(data: unknown, status = 200) {
     },
   });
 }
+

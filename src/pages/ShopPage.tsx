@@ -325,20 +325,34 @@ export function ShopPage() {
     const typeParam = searchParams.get('type');
     const normalized = typeParam ? toSlug(typeParam) : '';
     const match = normalized
-      ? categoryList.find(
+      ? visibleCategories.find(
           (c) => toSlug(c.slug) === normalized || toSlug(c.name) === normalized
         )
       : undefined;
 
     if (match) {
-      setActiveCategorySlug(match.slug);
+      if (activeCategorySlug !== match.slug) {
+        setActiveCategorySlug(match.slug);
+      }
       return;
     }
 
-    if (categoryList.length && !activeCategorySlug) {
-      setActiveCategorySlug(categoryList[0].slug);
+    if (!visibleCategories.length) {
+      if (activeCategorySlug) {
+        setActiveCategorySlug('');
+        searchParams.delete('type');
+        setSearchParams(searchParams, { replace: true });
+      }
+      return;
     }
-  }, [searchParams, categoryList, activeCategorySlug]);
+
+    const fallbackSlug = visibleCategories[0].slug;
+    if (!activeCategorySlug || !visibleCategories.some((c) => c.slug === activeCategorySlug)) {
+      setActiveCategorySlug(fallbackSlug);
+      searchParams.set('type', fallbackSlug);
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, visibleCategories, activeCategorySlug, setSearchParams]);
 
   const loadProducts = async () => {
     try {
@@ -408,6 +422,10 @@ export function ShopPage() {
 
     return groups;
   }, [categoryList, products]);
+  const visibleCategories = useMemo(() => {
+    if (!categoryList.length) return [];
+    return categoryList.filter((category) => (groupedProducts[category.slug] || []).length > 0);
+  }, [categoryList, groupedProducts]);
 
   const orderedSections = useMemo(() => {
     const resolvedActiveSlug = activeCategorySlug || categoryList[0]?.slug;
@@ -429,32 +447,34 @@ export function ShopPage() {
   return (
     <div id="shop-top" className="py-12 bg-white min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-wrap justify-center gap-3 mb-8">
-          {categoryList.map((category) => {
-            const hasItems = (groupedProducts[category.slug] || []).length > 0;
-            if (category.slug === OTHER_ITEMS_CATEGORY.slug && !hasItems) {
-              return null;
-            }
-            const isActive = activeCategorySlug === category.slug;
-            return (
-              <button
-                key={category.slug}
-                onClick={() => {
-                  setActiveCategorySlug(category.slug);
-                  searchParams.set('type', category.slug);
-                  setSearchParams(searchParams, { replace: true });
-                }}
-                className={`px-4 py-1.5 rounded-full border text-sm transition ${
-                  isActive
-                    ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-                }`}
-              >
-                {category.name}
-              </button>
-            );
-          })}
-        </div>
+        {visibleCategories.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-3 mb-8">
+            {visibleCategories.map((category) => {
+              const hasItems = (groupedProducts[category.slug] || []).length > 0;
+              if (category.slug === OTHER_ITEMS_CATEGORY.slug && !hasItems) {
+                return null;
+              }
+              const isActive = activeCategorySlug === category.slug;
+              return (
+                <button
+                  key={category.slug}
+                  onClick={() => {
+                    setActiveCategorySlug(category.slug);
+                    searchParams.set('type', category.slug);
+                    setSearchParams(searchParams, { replace: true });
+                  }}
+                  className={`px-4 py-1.5 rounded-full border text-sm transition ${
+                    isActive
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  {category.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {isLoading ? (
           <div className="text-center py-12">
@@ -494,3 +514,4 @@ export function ShopPage() {
     </div>
   );
 }
+

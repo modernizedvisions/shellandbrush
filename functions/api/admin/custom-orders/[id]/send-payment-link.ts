@@ -1,9 +1,10 @@
-import Stripe from 'stripe';
+﻿import Stripe from 'stripe';
 import { resolveFromEmail, sendEmail } from '../../../../_lib/email';
 import {
   renderCustomOrderPaymentLinkEmailHtml,
   renderCustomOrderPaymentLinkEmailText,
 } from '../../../../_lib/customOrderPaymentLinkEmail';
+import { resolvePublicImageUrl } from '../../../../_lib/imageUrls';
 import { requireAdmin } from '../../../_lib/adminAuth';
 
 type D1PreparedStatement = {
@@ -25,7 +26,9 @@ type CustomOrderRow = {
   customer_email1?: string | null;
   description: string | null;
   amount: number | null;
+  shipping_cents?: number | null;
   payment_link?: string | null;
+  image_url?: string | null;
   shipping_name?: string | null;
   shipping_line1?: string | null;
   shipping_line2?: string | null;
@@ -59,6 +62,7 @@ export async function onRequestPost(context: {
     STRIPE_SECRET_KEY?: string;
     PUBLIC_SITE_URL?: string;
     VITE_PUBLIC_SITE_URL?: string;
+    PUBLIC_IMAGES_BASE_URL?: string;
     RESEND_API_KEY?: string;
     RESEND_FROM?: string;
     RESEND_FROM_EMAIL?: string;
@@ -96,7 +100,7 @@ export async function onRequestPost(context: {
     const order = await env.DB.prepare(
       `SELECT id, display_custom_order_id, customer_name, ${
         emailCol ? `${emailCol} AS customer_email` : 'NULL AS customer_email'
-      }, description, amount, payment_link,
+      }, description, amount, shipping_cents, payment_link, image_url,
       shipping_name, shipping_line1, shipping_line2, shipping_city, shipping_state, shipping_postal_code, shipping_country, shipping_phone
        FROM custom_orders WHERE id = ?`
     )
@@ -119,8 +123,12 @@ export async function onRequestPost(context: {
     }
 
     const stripe = createStripeClient(env.STRIPE_SECRET_KEY);
-    const shippingCents = 500;
+    const shippingCents =
+      Number.isFinite(order.shipping_cents as number) && (order.shipping_cents as number) >= 0
+        ? Math.round(Number(order.shipping_cents))
+        : 0;
     const displayId = order.display_custom_order_id || order.id;
+    const thumbnailUrl = resolvePublicImageUrl(order.image_url || null, env, context.request);
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -143,14 +151,18 @@ export async function onRequestPost(context: {
           },
           quantity: 1,
         },
-        {
-          price_data: {
-            currency: 'usd',
-            product_data: { name: 'Shipping' },
-            unit_amount: shippingCents,
-          },
-          quantity: 1,
-        },
+        ...(shippingCents > 0
+          ? [
+              {
+                price_data: {
+                  currency: 'usd',
+                  product_data: { name: 'Shipping' },
+                  unit_amount: shippingCents,
+                },
+                quantity: 1,
+              },
+            ]
+          : []),
       ],
       success_url: `${baseUrl}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/shop?customOrderCanceled=1&co=${encodeURIComponent(displayId)}`,
@@ -159,6 +171,7 @@ export async function onRequestPost(context: {
         customOrderDisplayId: displayId,
         source: 'custom_order',
         kind: 'custom_order',
+        shipping_cents: String(shippingCents),
       },
     });
 
@@ -184,7 +197,7 @@ export async function onRequestPost(context: {
       amountCents: amount,
       currency: 'usd',
       shippingCents,
-      thumbnailUrl: null,
+      thumbnailUrl: thumbnailUrl || null,
       description: order.description || null,
     });
     const text = renderCustomOrderPaymentLinkEmailText({
@@ -194,7 +207,7 @@ export async function onRequestPost(context: {
       amountCents: amount,
       currency: 'usd',
       shippingCents,
-      thumbnailUrl: null,
+      thumbnailUrl: thumbnailUrl || null,
       description: order.description || null,
     });
     console.log('[email] custom order send', {
@@ -253,6 +266,9 @@ async function ensureCustomOrdersSchema(db: D1Database) {
     stripe_session_id TEXT,
     stripe_payment_intent_id TEXT,
     paid_at TEXT,
+    image_url TEXT,
+    image_key TEXT,
+    image_updated_at TEXT,
     shipping_name TEXT,
     shipping_line1 TEXT,
     shipping_line2 TEXT,
@@ -261,6 +277,7 @@ async function ensureCustomOrdersSchema(db: D1Database) {
     shipping_postal_code TEXT,
     shipping_country TEXT,
     shipping_phone TEXT,
+    shipping_cents INTEGER DEFAULT 0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );`).run();
 
@@ -282,6 +299,18 @@ async function ensureCustomOrdersSchema(db: D1Database) {
   }
   if (!names.includes('paid_at')) {
     await db.prepare(`ALTER TABLE custom_orders ADD COLUMN paid_at TEXT;`).run();
+  }
+  if (!names.includes('image_url')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN image_url TEXT;`).run();
+  }
+  if (!names.includes('image_key')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN image_key TEXT;`).run();
+  }
+  if (!names.includes('image_updated_at')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN image_updated_at TEXT;`).run();
+  }
+  if (!names.includes('shipping_cents')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN shipping_cents INTEGER DEFAULT 0;`).run();
   }
   const shippingColumns = [
     'shipping_name',
@@ -322,3 +351,7 @@ function resolveSiteUrl(env: {
   const raw = env.PUBLIC_SITE_URL || env.VITE_PUBLIC_SITE_URL || '';
   return raw ? raw.replace(/\/+$/, '') : '';
 }
+
+
+
+

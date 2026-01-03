@@ -1,5 +1,5 @@
-import Stripe from 'stripe';
-import { calculateShippingCents } from '../../_lib/shipping';
+﻿import Stripe from 'stripe';
+import { calculateShippingCentsForCart, type CartCategoryItem, type ShippingCategoryConfig } from '../../_lib/shipping';
 
 type D1PreparedStatement = {
   bind(...values: unknown[]): D1PreparedStatement;
@@ -28,6 +28,11 @@ type ProductRow = {
   stripe_product_id?: string | null;
   collection?: string | null;
   created_at: string | null;
+};
+type CategoryShippingRow = {
+  slug: string | null;
+  name: string | null;
+  shipping_cents: number | null;
 };
 
 const json = (data: unknown, status = 200) =>
@@ -104,6 +109,18 @@ export const onRequestPost = async (context: {
       .all<ProductRow>();
 
     const products = productsRes.results || [];
+
+    let categoryConfigs: ShippingCategoryConfig[] = [];
+    try {
+      const categoryRows = await env.DB.prepare(`SELECT slug, name, shipping_cents FROM categories`).all<CategoryShippingRow>();
+      categoryConfigs = (categoryRows.results || []).map((row) => ({
+        slug: row.slug,
+        name: row.name,
+        shippingCents: row.shipping_cents ?? 0,
+      }));
+    } catch (error) {
+      console.error('Failed to load category shipping config', error);
+    }
     console.log('create-session products fetched', { requested: productIds.length, found: products.length });
     const productMap = new Map<string, ProductRow>();
     for (const p of products) {
@@ -112,6 +129,7 @@ export const onRequestPost = async (context: {
     }
 
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+    const cartCategoryItems: CartCategoryItem[] = [];
     let subtotalCents = 0;
 
     for (const pid of productIds) {
@@ -146,6 +164,7 @@ export const onRequestPost = async (context: {
         quantity,
       });
       subtotalCents += (product.price_cents ?? 0) * quantity;
+      cartCategoryItems.push({ category: product.category ?? null });
     }
 
     const stripe = createStripeClient(stripeSecretKey);
@@ -155,7 +174,7 @@ export const onRequestPost = async (context: {
       return json({ error: 'Server configuration error: missing site URL' }, 500);
     }
 
-    const shippingCents = calculateShippingCents(subtotalCents);
+    const shippingCents = calculateShippingCentsForCart(cartCategoryItems, categoryConfigs);
     const expiresAt = Math.floor(Date.now() / 1000) + 1800; // Stripe requires at least 30 minutes
     console.log('Creating embedded checkout session with expires_at', expiresAt);
 
@@ -163,9 +182,7 @@ export const onRequestPost = async (context: {
       const session = await stripe.checkout.sessions.create({
         mode: 'payment',
         ui_mode: 'embedded',
-        line_items: [
-          ...lineItems,
-          {
+        line_items: shippingCents > 0 ? [...lineItems, {
             price_data: {
               currency: 'usd',
               product_data: {
@@ -175,10 +192,9 @@ export const onRequestPost = async (context: {
               unit_amount: shippingCents,
             },
             quantity: 1,
-          },
-        ],
+          }] : lineItems,
         return_url: `${baseUrl}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
-        metadata: {},
+        metadata: { shipping_cents: String(shippingCents) },
         consent_collection: {
           promotions: 'auto',
         },
@@ -207,3 +223,4 @@ export const onRequestPost = async (context: {
     return json({ error: 'Failed to create checkout session' }, 500);
   }
 };
+

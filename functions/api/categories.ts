@@ -23,6 +23,7 @@ type CategoryRow = {
   image_id?: string | null;
   hero_image_id?: string | null;
   show_on_homepage?: number | null;
+  shipping_cents?: number | null;
 };
 
 type Category = {
@@ -33,6 +34,7 @@ type Category = {
   imageUrl?: string;
   heroImageUrl?: string;
   showOnHomePage: boolean;
+  shippingCents?: number | null;
 };
 
 const BASE_CATEGORY_ORDER = [
@@ -59,12 +61,14 @@ const createCategoriesTable = `
     image_id TEXT,
     hero_image_id TEXT,
     show_on_homepage INTEGER DEFAULT 0,
+    shipping_cents INTEGER DEFAULT 0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
 `;
 
 const REQUIRED_CATEGORY_COLUMNS: Record<string, string> = {
   show_on_homepage: 'show_on_homepage INTEGER DEFAULT 0',
+  shipping_cents: 'shipping_cents INTEGER DEFAULT 0',
   slug: 'slug TEXT',
   description: 'description TEXT',
   hero_image_url: 'hero_image_url TEXT',
@@ -103,7 +107,7 @@ export async function onRequestGet(context: {
 
     const { results } = await context.env.DB
       .prepare(
-        `SELECT id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage FROM categories`
+        `SELECT id, name, slug, description, image_url, hero_image_url, image_id, hero_image_id, show_on_homepage, shipping_cents FROM categories`
       )
       .all<CategoryRow>();
 
@@ -145,6 +149,7 @@ const mapRowToCategory = (row: CategoryRow, imageUrlMap: Map<string, string>, no
     imageUrl,
     heroImageUrl,
     showOnHomePage: row.show_on_homepage === 1,
+    shippingCents: row.shipping_cents ?? 0,
   };
 };
 
@@ -282,6 +287,7 @@ async function ensureOtherItemsCategory(db: D1Database) {
     return null;
   }
 }
+
 
 
 

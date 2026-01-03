@@ -7,9 +7,25 @@ export type AdminCustomOrder = {
   customerEmail: string;
   description: string;
   amount: number | null;
+  shippingCents?: number | null;
   status: 'pending' | 'paid';
   paymentLink: string | null;
   createdAt: string | null;
+  paidAt?: string | null;
+  imageUrl?: string | null;
+  imageKey?: string | null;
+  imageUpdatedAt?: string | null;
+  shippingName?: string | null;
+  shippingAddress?: {
+    line1?: string | null;
+    line2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postal_code?: string | null;
+    country?: string | null;
+    phone?: string | null;
+    name?: string | null;
+  } | null;
 };
 
 const ADMIN_CUSTOM_ORDERS_PATH = '/api/admin/custom-orders';
@@ -64,6 +80,7 @@ export async function createAdminCustomOrder(payload: {
   customerEmail: string;
   description: string;
   amount?: number;
+  shippingCents?: number;
   messageId?: string | null;
 }): Promise<AdminCustomOrder> {
   const res = await adminFetch(ADMIN_CUSTOM_ORDERS_PATH, {
@@ -95,9 +112,13 @@ export async function createAdminCustomOrder(payload: {
     customerEmail: payload.customerEmail,
     description: payload.description,
     amount: payload.amount ?? null,
+    shippingCents: payload.shippingCents ?? 0,
     status: 'pending',
     paymentLink: payload.paymentLink ?? null,
     createdAt: data.createdAt as string,
+    imageUrl: null,
+    imageKey: null,
+    imageUpdatedAt: null,
   };
 }
 
@@ -108,6 +129,7 @@ export async function updateAdminCustomOrder(
     customerEmail: string;
     description: string;
     amount: number | null;
+    shippingCents: number | null;
     status: 'pending' | 'paid';
     paymentLink: string | null;
     messageId: string | null;
@@ -127,6 +149,46 @@ export async function updateAdminCustomOrder(
     const message =
       (data && (data.error || data.detail)) ||
       `Failed to update custom order (${res.status})`;
+    throw new Error(message);
+  }
+}
+
+export async function uploadAdminCustomOrderImage(
+  id: string,
+  file: File
+): Promise<{ imageUrl: string; imageKey?: string | null; imageUpdatedAt?: string | null }> {
+  const form = new FormData();
+  form.append('file', file, file.name || 'upload');
+
+  const res = await adminFetch(`${ADMIN_CUSTOM_ORDERS_PATH}/${encodeURIComponent(id)}/image`, {
+    method: 'POST',
+    body: form,
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message =
+      (data && (data.error || data.detail)) ||
+      `Failed to upload custom order image (${res.status})`;
+    throw new Error(message);
+  }
+
+  return {
+    imageUrl: data.imageUrl as string,
+    imageKey: data.imageKey ?? null,
+    imageUpdatedAt: data.imageUpdatedAt ?? null,
+  };
+}
+
+export async function removeAdminCustomOrderImage(id: string): Promise<void> {
+  const res = await adminFetch(`${ADMIN_CUSTOM_ORDERS_PATH}/${encodeURIComponent(id)}/image`, {
+    method: 'DELETE',
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message =
+      (data && (data.error || data.detail)) ||
+      `Failed to remove custom order image (${res.status})`;
     throw new Error(message);
   }
 }

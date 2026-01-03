@@ -1,4 +1,4 @@
-import {
+﻿import {
   getActiveProducts,
   getProductById,
   getRelatedProducts,
@@ -85,6 +85,25 @@ export async function fetchGalleryImages() {
   }));
 }
 
+export async function fetchSoldGalleryItems() {
+  const response = await fetch('/api/gallery-sold', {
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new Error(`Gallery sold API responded with ${response.status}`);
+  const data = await response.json().catch(() => ({}));
+  const items = Array.isArray(data.items) ? data.items : [];
+  return items.map((item: any, idx: number) => ({
+    id: item.id || `gallery-sold-${idx}`,
+    imageUrl: item.imageUrl || item.image_url || '',
+    title: item.title || undefined,
+    sourceType: item.sourceType || item.source_type || undefined,
+    sourceId: item.sourceId || item.source_id || undefined,
+    soldAt: item.soldAt || item.sold_at || undefined,
+    createdAt: item.createdAt || item.created_at || undefined,
+  }));
+}
+
 export async function saveGalleryImages(images: any[]) {
   const response = await fetch('/api/gallery', {
     method: 'PUT',
@@ -130,12 +149,13 @@ export async function adminFetchCategories(): Promise<Category[]> {
 
 export async function adminCreateCategory(
   name: string,
-  description?: string | null
+  description?: string | null,
+  shippingCents?: number | null
 ): Promise<Category | null> {
   const response = await adminFetch(ADMIN_CATEGORIES_PATH, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ name, description: description || null }),
+    body: JSON.stringify({ name, description: description || null, shippingCents: shippingCents ?? null }),
   });
   if (!response.ok) throw new Error(`Create category failed: ${response.status}`);
   const data = await response.json();
@@ -277,3 +297,4 @@ export async function adminDeleteMessage(id: string): Promise<void> {
     throw new Error(trimmed || `Delete message failed (${response.status})`);
   }
 }
+

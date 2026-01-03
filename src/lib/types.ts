@@ -1,4 +1,4 @@
-export interface Product {
+﻿export interface Product {
   id: string;
   stripeProductId?: string | null;
   name: string;
@@ -32,6 +32,8 @@ export interface CartItem {
   priceCents: number;
   quantity: number;
   imageUrl?: string;
+  category?: string | null;
+  categories?: string[] | null;
   oneoff?: boolean;
   quantityAvailable?: number | null;
   stripeProductId?: string | null;
@@ -76,6 +78,16 @@ export interface GalleryImage {
   uploadError?: string;
 }
 
+export interface GallerySoldItem {
+  id: string;
+  imageUrl: string;
+  title?: string;
+  sourceType?: string;
+  sourceId?: string;
+  soldAt?: string;
+  createdAt?: string;
+}
+
 // Collage images for the homepage hero
 export interface HeroCollageImage {
   id: string;
@@ -111,6 +123,7 @@ export interface Category {
   imageId?: string;
   heroImageId?: string;
   showOnHomePage: boolean;
+  shippingCents?: number | null;
 }
 
 export type ShopCategoryTile = {
@@ -127,7 +140,8 @@ export interface Review {
   id: string;
   productId: string;
   author: string;
-  rating: number; // 1–5
+  rating: number; // 1â€“5
   comment: string;
   createdAt: string; // ISO date
 }
+

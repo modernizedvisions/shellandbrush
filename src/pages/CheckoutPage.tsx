@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { loadStripe, type EmbeddedCheckout } from '@stripe/stripe-js';
 import { BannerMessage } from '../components/BannerMessage';
-import { createEmbeddedCheckoutSession, fetchProductById } from '../lib/api';
-import type { Product } from '../lib/types';
+import { createEmbeddedCheckoutSession, fetchCategories, fetchProductById } from '../lib/api';
+import type { Category, Product } from '../lib/types';
 import { useCartStore } from '../store/cartStore';
-import { calculateShippingCents } from '../lib/shipping';
+import { calculateShippingCentsForCart } from '../lib/shipping';
 
 const SESSION_MAX_AGE_MS = 10 * 60 * 1000;
 const sessionTimestampKey = (sessionId: string) => `checkout_session_created_at_${sessionId}`;
@@ -33,12 +33,26 @@ export function CheckoutPage() {
   const stripeContainerRef = useRef<HTMLDivElement | null>(null);
 
   const [product, setProduct] = useState<Product | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMountingStripe, setIsMountingStripe] = useState(false);
   const publishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined;
+  useEffect(() => {
+    let isMounted = true;
+    fetchCategories()
+      .then((data) => {
+        if (isMounted) setCategories(data);
+      })
+      .catch((error) => {
+        console.error('checkout: failed to load categories for shipping', error);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const productIdFromUrl = searchParams.get('productId');
   const fallbackCartProduct = cartItems[0]?.productId;
@@ -243,12 +257,35 @@ export function CheckoutPage() {
     return [];
   }, [cartItems, product]);
 
+  
+  const shippingItems = useMemo(() => {
+    if (cartItems.length) return cartItems;
+    if (product) {
+      const primaryCategory = product.category ?? product.type ?? null;
+      const categoriesList = Array.isArray(product.categories)
+        ? product.categories
+        : primaryCategory
+        ? [primaryCategory]
+        : null;
+      return [
+        {
+          productId: product.id ?? product.stripeProductId ?? 'product',
+          name: product.name,
+          priceCents: product.priceCents ?? 0,
+          quantity: 1,
+          category: primaryCategory,
+          categories: categoriesList,
+        },
+      ];
+    }
+    return [];
+  }, [cartItems, product]);
   const subtotalCents = useMemo(() => {
     if (cartItems.length) return cartSubtotal;
     return previewItems.reduce((sum, item) => sum + item.priceCents * (item.quantity || 1), 0);
   }, [cartItems.length, cartSubtotal, previewItems]);
 
-  const shippingCents = calculateShippingCents(subtotalCents || 0);
+  const shippingCents = calculateShippingCentsForCart(shippingItems, categories);
   const totalCents = (subtotalCents || 0) + shippingCents;
 
   const formatMoney = (cents: number) => `$${((cents ?? 0) / 100).toFixed(2)}`;
@@ -318,7 +355,7 @@ export function CheckoutPage() {
                           <p className="text-xs text-gray-600 line-clamp-2">{item.description}</p>
                         )}
                         <p className="text-xs text-gray-500 mt-0.5">
-                          Qty: {item.quantity || 1} × <span className="font-serif">{formatMoney(item.priceCents)}</span>
+                          Qty: {item.quantity || 1} Ã— <span className="font-serif">{formatMoney(item.priceCents)}</span>
                         </p>
                       </div>
                     </div>
@@ -347,7 +384,7 @@ export function CheckoutPage() {
             <div className="rounded-xl bg-white shadow-sm border border-gray-100 p-4 sm:p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-gray-900">Payment</h2>
-                {isMountingStripe && <p className="text-sm text-gray-500">Loading Stripe…</p>}
+                {isMountingStripe && <p className="text-sm text-gray-500">Loading Stripeâ€¦</p>}
               </div>
               <div
                 id="embedded-checkout"
@@ -355,7 +392,7 @@ export function CheckoutPage() {
                 className="rounded-lg border border-dashed border-gray-200 min-h-[360px]"
               />
               <p className="text-xs text-gray-500">
-                Secure payment is handled by Stripe. You’ll receive a confirmation as soon as the purchase completes.
+                Secure payment is handled by Stripe. Youâ€™ll receive a confirmation as soon as the purchase completes.
               </p>
             </div>
           </div>
@@ -373,3 +410,4 @@ export function CheckoutPage() {
     </div>
   );
 }
+

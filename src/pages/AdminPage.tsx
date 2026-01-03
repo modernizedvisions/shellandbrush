@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchGalleryImages,
   fetchHomeHeroConfig,
@@ -1120,6 +1120,7 @@ export function AdminPage() {
                   customerEmail: order.customerEmail,
                   description: order.description,
                   amount: order.amount ? Math.round(Number(order.amount) * 100) : undefined,
+                  shippingCents: order.shipping ? Math.round(Number(order.shipping) * 100) : 0,
                   messageId: order.messageId ?? null,
                 });
                 setCustomOrders((prev) => {
@@ -1127,9 +1128,11 @@ export function AdminPage() {
                   return [created, ...prev];
                 });
                 setCustomOrderDraft(null);
+                return created;
               } catch (err) {
                 console.error('Failed to create custom order', err);
                 setCustomOrdersError(err instanceof Error ? err.message : 'Failed to create custom order');
+                return null;
               }
             }}
             initialDraft={customOrderDraft}
@@ -1307,3 +1310,4 @@ function describeImageKinds(images: ManagedImage[]) {
 function findBase64Urls(urls: string[]) {
   return urls.filter((url) => isBlockedImageUrl(url));
 }
+

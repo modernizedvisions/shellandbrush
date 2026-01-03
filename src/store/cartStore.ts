@@ -39,6 +39,8 @@ const loadCartFromStorage = (): CartItem[] => {
           priceCents: item.priceCents,
           quantity: item.quantity,
           imageUrl: item.imageUrl,
+          category: (item as CartItem).category ?? null,
+          categories: (item as CartItem).categories ?? null,
           oneoff: item.oneoff,
           quantityAvailable: (item as CartItem).quantityAvailable ?? null,
           stripeProductId: (item as CartItem).stripeProductId ?? (item as CartItemLegacy).stripeProductId ?? null,

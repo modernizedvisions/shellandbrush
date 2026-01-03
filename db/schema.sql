@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS products (
+﻿CREATE TABLE IF NOT EXISTS products (
   id TEXT PRIMARY KEY,
   name TEXT,
   slug TEXT,
@@ -65,3 +65,18 @@ CREATE TABLE IF NOT EXISTS custom_orders (
   image_updated_at TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS categories (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  description TEXT,
+  image_url TEXT,
+  hero_image_url TEXT,
+  image_id TEXT,
+  hero_image_id TEXT,
+  show_on_homepage INTEGER DEFAULT 0,
+  shipping_cents INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+

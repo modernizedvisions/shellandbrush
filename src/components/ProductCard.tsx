@@ -1,4 +1,4 @@
-import { useState } from 'react';
+ï»¿import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Product } from '../lib/types';
 import { useCartStore } from '../store/cartStore';
@@ -53,6 +53,8 @@ export function ProductCard({ product, showEditOverlay = false, children }: Prod
       priceCents: product.priceCents ?? 0,
       quantity: 1,
       imageUrl: product.thumbnailUrl || product.imageUrl,
+      category: product.category ?? product.type,
+      categories: product.categories ?? (product.category || product.type ? [product.category ?? product.type] : null),
       oneoff: product.oneoff,
       quantityAvailable: product.quantityAvailable ?? null,
       stripeProductId: product.stripeProductId ?? null,
@@ -122,7 +124,7 @@ export function ProductCard({ product, showEditOverlay = false, children }: Prod
               {formatPrice(product.priceCents)}
             </div>
           ) : (
-            <span className="text-xs sm:text-sm text-gray-500">—</span>
+            <span className="text-xs sm:text-sm text-gray-500">ï¿½</span>
           )}
 
           <div className="product-actions mt-2 sm:mt-3 grid grid-cols-2 gap-1.5 sm:gap-2">
@@ -159,3 +161,4 @@ export function ProductCard({ product, showEditOverlay = false, children }: Prod
     </div>
   );
 }
+

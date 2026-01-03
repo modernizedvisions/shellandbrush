@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, ShoppingCart } from 'lucide-react';
 import { fetchProductById, fetchRelatedProducts } from '../lib/api';
@@ -74,6 +74,8 @@ export function ProductDetailPage() {
       priceCents: product.priceCents ?? 0,
       quantity: 1,
       imageUrl: product.thumbnailUrl || product.imageUrl,
+      category: product.category ?? product.type,
+      categories: product.categories ?? (product.category || product.type ? [product.category ?? product.type] : null),
       oneoff: product.oneoff,
       stripeProductId: product.stripeProductId ?? null,
       stripePriceId: product.stripePriceId ?? null,
@@ -217,6 +219,8 @@ export function ProductDetailPage() {
                             priceCents: item.priceCents,
                             quantity: 1,
                             imageUrl: item.thumbnailUrl || item.imageUrl,
+                            category: item.category ?? item.type,
+                            categories: item.categories ?? (item.category || item.type ? [item.category ?? item.type] : null),
                             oneoff: item.oneoff,
                             stripeProductId: item.stripeProductId ?? null,
                             stripePriceId: item.stripePriceId ?? null,
@@ -249,3 +253,4 @@ export function ProductDetailPage() {
     </div>
   );
 }
+

@@ -1,4 +1,4 @@
-PRAGMA foreign_keys=ON;
+﻿PRAGMA foreign_keys=ON;
 
 -- Core product catalog
 CREATE TABLE IF NOT EXISTS products (
@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS categories (
   image_id TEXT,
   hero_image_id TEXT,
   show_on_homepage INTEGER DEFAULT 0,
+  shipping_cents INTEGER DEFAULT 0,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -131,6 +132,7 @@ CREATE TABLE IF NOT EXISTS custom_orders (
   shipping_postal_code TEXT,
   shipping_country TEXT,
   shipping_phone TEXT,
+  shipping_cents INTEGER DEFAULT 0,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -231,3 +233,5 @@ CREATE TABLE IF NOT EXISTS site_config (
 -- Other Items is enforced as non-deletable by API logic; schema has no dedicated flag.
 INSERT OR IGNORE INTO categories (id, name, slug, show_on_homepage)
 VALUES ('other-items', 'Other Items', 'other-items', 1);
+
+
