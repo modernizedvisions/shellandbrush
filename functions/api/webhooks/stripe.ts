@@ -1368,7 +1368,7 @@ async function handleCustomOrderPayment(args: {
     .prepare(
       `SELECT id, display_custom_order_id, customer_name, ${
         emailCol ? `${emailCol} AS customer_email` : 'NULL AS customer_email'
-      }, description, amount, payment_link, stripe_session_id, stripe_payment_intent_id, image_url, paid_at,
+      }, description, amount, shipping_cents, payment_link, stripe_session_id, stripe_payment_intent_id, image_url, paid_at,
          shipping_name, shipping_line1, shipping_line2, shipping_city, shipping_state, shipping_postal_code, shipping_country, shipping_phone
        FROM custom_orders WHERE id = ?`
     )
@@ -1380,6 +1380,7 @@ async function handleCustomOrderPayment(args: {
       customer_email: string | null;
       description: string | null;
       amount: number | null;
+      shipping_cents?: number | null;
       payment_link: string | null;
       stripe_session_id?: string | null;
       stripe_payment_intent_id?: string | null;
@@ -1400,7 +1401,11 @@ async function handleCustomOrderPayment(args: {
     .first<{ id: string }>();
 
   const amount = customOrder.amount ?? 0;
-  const totalCents = session.amount_total ?? amount + shippingCents;
+  const shippingFromOrder = Number(customOrder.shipping_cents ?? null);
+  const shippingCentsForCustomOrder = Number.isFinite(shippingFromOrder)
+    ? Math.max(0, Math.round(shippingFromOrder))
+    : shippingCents;
+  const totalCents = session.amount_total ?? amount + shippingCentsForCustomOrder;
   const description = customOrder.description || 'Custom order payment';
   const paidAt = customOrder.paid_at || new Date().toISOString();
   const customOrderImageUrl = resolvePublicImageUrl(customOrder.image_url || null, env);
@@ -1409,12 +1414,23 @@ async function handleCustomOrderPayment(args: {
     (paymentIntent?.shipping as any)?.phone ||
     null;
 
+  const debugStripeWebhook = !!(env.DEBUG_STRIPE_WEBHOOK || env.EMAIL_DEBUG);
   console.log('[custom order] processing checkout.session.completed', {
     sessionId: session.id,
     paymentIntentId,
     customOrderId,
     displayId,
   });
+  if (debugStripeWebhook) {
+    console.log('[custom order] shipping debug', {
+      sessionId: session.id,
+      customOrderId,
+      amount,
+      shippingFromOrder: Number.isFinite(shippingFromOrder) ? shippingCentsForCustomOrder : null,
+      shippingFromSession: shippingCents,
+      totalCents,
+    });
+  }
 
   // Update custom order status and stripe ids
   const update = await db
@@ -1475,7 +1491,7 @@ async function handleCustomOrderPayment(args: {
     shippingAddress,
     cardLast4,
     cardBrand,
-    shippingCents,
+    shippingCents: shippingCentsForCustomOrder,
     productId: null,
     quantityFromMeta: 1,
     displayOrderIdOverride: displayId,
@@ -1483,7 +1499,7 @@ async function handleCustomOrderPayment(args: {
     description,
     lineItemsOverride: [
       { productId: `custom_order:${customOrder.id}`, quantity: 1, priceCents: amount },
-      { productId: 'shipping', quantity: 1, priceCents: shippingCents },
+      { productId: 'shipping', quantity: 1, priceCents: shippingCentsForCustomOrder },
     ],
     totalCentsOverride: totalCents,
   });
@@ -1502,7 +1518,7 @@ async function handleCustomOrderPayment(args: {
     const orderDate = formatOrderDate(new Date());
     const totalsForEmail = {
       subtotalCents: Math.max(0, amount),
-      shippingCents,
+      shippingCents: shippingCentsForCustomOrder,
       totalCents,
     };
     console.log('[email totals raw]', {
@@ -1593,7 +1609,7 @@ async function handleCustomOrderPayment(args: {
   ];
   const totalsForOwner = {
     subtotalCents: Math.max(0, amount),
-    shippingCents,
+    shippingCents: shippingCentsForCustomOrder,
     totalCents,
   };
   console.log('[email totals raw]', {
