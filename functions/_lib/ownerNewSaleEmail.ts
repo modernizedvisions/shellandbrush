@@ -24,7 +24,7 @@ export type OwnerNewSaleParams = {
 };
 
 export function renderOwnerNewSaleEmailHtml(params: OwnerNewSaleParams): string {
-  const brand = 'The Chesapeake Shell';
+  const brand = 'Shell & Brush';
   const orderLabel = params.orderNumber || 'Order';
   const baseFont = "'Playfair Display', Georgia, 'Times New Roman', serif";
   const baseColor = '#111827';
@@ -145,7 +145,7 @@ export function renderOwnerNewSaleEmailHtml(params: OwnerNewSaleParams): string 
           <tr>
             <td class="section" colspan="2">
               <p class="title">New Sale!</p>
-              <p class="subtitle">A new order has been placed on The Chesapeake Shell.</p>
+              <p class="subtitle">A new order has been placed on Shell & Brush.</p>
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin-top:14px;">
                 <tr>
                   <td bgcolor="${baseColor}" style="border-radius:9999px;">
