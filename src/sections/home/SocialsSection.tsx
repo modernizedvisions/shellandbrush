@@ -170,14 +170,16 @@ export function SocialsSection() {
 
         <div className="grid gap-10 lg:grid-cols-2">
           <div className="space-y-4">
-            <a
-              href="https://www.tiktok.com/@thechesapeakeshell"
-              target="_blank"
-              rel="noreferrer noopener"
-              className="text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700"
-            >
-              Follow on TikTok ?
-            </a>
+            <div className="mx-auto max-w-[420px]">
+              <a
+                href="https://www.tiktok.com/@thechesapeakeshell"
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700"
+              >
+                Follow on TikTok ?
+              </a>
+            </div>
             {isMobile ? (
               <PreviewFrame
                 title="TikTok"
@@ -195,14 +197,16 @@ export function SocialsSection() {
           </div>
 
           <div className="space-y-4">
-            <a
-              href="https://www.instagram.com/thechesapeakeshell"
-              target="_blank"
-              rel="noreferrer noopener"
-              className="text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700"
-            >
-              Follow on Instagram ?
-            </a>
+            <div className="mx-auto max-w-[420px]">
+              <a
+                href="https://www.instagram.com/thechesapeakeshell"
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700"
+              >
+                Follow on Instagram ?
+              </a>
+            </div>
             {isMobile ? (
               <PreviewFrame
                 title="Instagram"
@@ -263,3 +267,4 @@ export function SocialsSection() {
     </section>
   );
 }
+
