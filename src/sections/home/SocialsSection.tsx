@@ -151,7 +151,7 @@ export function SocialsSection() {
 
         <div className="grid gap-10 lg:grid-cols-2">
           <div className="space-y-4">
-            <div className="mx-auto max-w-[420px]">
+            <div className="lg:mx-auto lg:max-w-[420px]">
               <a
                 href="https://www.tiktok.com/@thechesapeakeshell"
                 target="_blank"
@@ -202,7 +202,7 @@ export function SocialsSection() {
           </div>
 
           <div className="space-y-4">
-            <div className="mx-auto max-w-[420px]">
+            <div className="lg:mx-auto lg:max-w-[420px]">
               <a
                 href="https://www.instagram.com/thechesapeakeshell"
                 target="_blank"
