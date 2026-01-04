@@ -158,7 +158,7 @@ export function SocialsSection() {
                 rel="noreferrer noopener"
                 className="text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700"
               >
-                Follow on TikTok ?
+                Follow on TikTok ➜ 
               </a>
             </div>
             {isMobile ? (
@@ -209,7 +209,7 @@ export function SocialsSection() {
                 rel="noreferrer noopener"
                 className="text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700"
               >
-                Follow on Instagram ?
+                Follow on Instagram ➜ 
               </a>
             </div>
             {isMobile ? (
