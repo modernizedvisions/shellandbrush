@@ -3,6 +3,7 @@ import { useLocation, useSearchParams } from 'react-router-dom';
 import { fetchCategories, fetchProducts } from '../lib/api';
 import { Category, Product } from '../lib/types';
 import { ProductGrid } from '../components/ProductGrid';
+import { HomeContactSection } from '../sections/home/HomeContactSection';
 
 const BASE_CATEGORY_ORDER: Category[] = [
   { id: 'other-items', name: 'Featured Works', slug: 'other-items', showOnHomePage: true },
@@ -489,6 +490,7 @@ export function ShopPage() {
           </div>
         )}
       </div>
+      <HomeContactSection />
     </div>
   );
 }
