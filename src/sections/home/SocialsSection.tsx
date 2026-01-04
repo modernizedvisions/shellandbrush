@@ -126,6 +126,19 @@ function EmbedFrame({ title, src, openUrl, openLabel, containerClassName }: Embe
 
 export function SocialsSection() {
   const isMobile = useIsMobile(1024);
+  const [tiktokLoadedMobile, setTiktokLoadedMobile] = useState(false);
+  const [tiktokTimedOutMobile, setTiktokTimedOutMobile] = useState(false);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    setTiktokLoadedMobile(false);
+    setTiktokTimedOutMobile(false);
+    const timer = window.setTimeout(() => {
+      setTiktokTimedOutMobile(true);
+    }, 6000);
+
+    return () => window.clearTimeout(timer);
+  }, [isMobile]);
 
   return (
     <section className="py-16 md:py-20 border-t border-gray-100">
@@ -150,12 +163,32 @@ export function SocialsSection() {
             </div>
             {isMobile ? (
               // Mobile embeds rendered inline with generous fixed height to prevent internal iframe scrollbars.
-              <div className="h-[640px] w-full overflow-hidden rounded-2xl">
-                <TikTokEmbed
-                  videoId={TIKTOK_VIDEO_ID}
-                  citeUrl={TIKTOK_CITE_URL}
-                  className="h-full"
-                />
+              <div className="h-[720px] w-full overflow-hidden rounded-2xl sm:h-[760px]">
+                {!tiktokLoadedMobile && tiktokTimedOutMobile ? (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center">
+                    <p className="text-sm text-gray-600">TikTok preview unavailable.</p>
+                    <a
+                      href="https://www.tiktok.com/@she.sells.seashells12/video/7534342632328138039"
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="rounded-full border border-gray-900 px-4 py-2 text-xs uppercase tracking-[0.2em] text-gray-900 hover:bg-gray-900 hover:text-white"
+                    >
+                      Open on TikTok
+                    </a>
+                  </div>
+                ) : (
+                  <iframe
+                    title="TikTok embed"
+                    src={TIKTOK_EMBED_URL}
+                    className="h-full w-full border-0"
+                    loading="lazy"
+                    allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                    allowFullScreen
+                    referrerPolicy="no-referrer-when-downgrade"
+                    scrolling="no"
+                    onLoad={() => setTiktokLoadedMobile(true)}
+                  />
+                )}
               </div>
             ) : (
               <EmbedFrame
@@ -180,7 +213,7 @@ export function SocialsSection() {
               </a>
             </div>
             {isMobile ? (
-              <div className="h-[640px] w-full overflow-hidden rounded-2xl">
+              <div className="h-[720px] w-full overflow-hidden rounded-2xl sm:h-[760px]">
                 <iframe
                   title="Instagram embed"
                   src={INSTAGRAM_EMBED_URL}
