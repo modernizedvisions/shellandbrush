@@ -147,20 +147,28 @@ export function SocialsSection() {
           <h2 className="text-3xl md:text-4xl font-serif font-semibold text-gray-900">
             SOCIALS
           </h2>
-        </div>
+                  <div className=\"mt-4 space-y-2\">
+            <a
+              href=\"https://www.tiktok.com/@thechesapeakeshell\"
+              target=\"_blank\"
+              rel=\"noreferrer noopener\"
+              className=\"block text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700\"
+            >
+              Follow on TikTok ?
+            </a>
+
+            <a
+              href=\"https://www.instagram.com/thechesapeakeshell\"
+              target=\"_blank\"
+              rel=\"noreferrer noopener\"
+              className=\"block text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700\"
+            >
+              Follow on Instagram ?
+            </a>
+          </div></div>
 
         <div className="grid gap-10 lg:grid-cols-2">
           <div className="space-y-4">
-            <div className="lg:mx-auto lg:max-w-[420px]">
-              <a
-                href="https://www.tiktok.com/@thechesapeakeshell"
-                target="_blank"
-                rel="noreferrer noopener"
-                className="text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700"
-              >
-                Follow on TikTok ➜ 
-              </a>
-            </div>
             {isMobile ? (
               // Mobile embeds rendered inline with generous fixed height to prevent internal iframe scrollbars.
               <div className="h-[720px] w-full overflow-hidden rounded-2xl sm:h-[760px]">
@@ -202,16 +210,6 @@ export function SocialsSection() {
           </div>
 
           <div className="space-y-4">
-            <div className="lg:mx-auto lg:max-w-[420px]">
-              <a
-                href="https://www.instagram.com/thechesapeakeshell"
-                target="_blank"
-                rel="noreferrer noopener"
-                className="text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700"
-              >
-                Follow on Instagram ➜ 
-              </a>
-            </div>
             {isMobile ? (
               <div className="h-[720px] w-full overflow-hidden rounded-2xl sm:h-[760px]">
                 <iframe
@@ -238,4 +236,5 @@ export function SocialsSection() {
     </section>
   );
 }
+
 
