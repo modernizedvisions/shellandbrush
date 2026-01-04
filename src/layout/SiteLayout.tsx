@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Menu, X } from 'lucide-react';
 import { CartIcon } from '../components/cart/CartIcon';
 import { CartDrawer } from '../components/cart/CartDrawer';
@@ -66,6 +66,16 @@ export function SiteLayout() {
   useEffect(() => {
     setNavDrawerOpen(false);
   }, [location]);
+
+  useEffect(() => {
+    if ('scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual';
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
