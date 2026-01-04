@@ -328,7 +328,6 @@ export async function onRequestPut(context: {
     if (body.name !== undefined) addSet('name = ?', body.name);
     if (body.name) addSet('slug = ?', toSlug(body.name));
     if (body.description !== undefined) addSet('description = ?', body.description);
-    if (body.priceCents !== undefined) addSet('price_cents = ?', body.priceCents);
     if (body.category !== undefined) {
       const categoryValue = sanitizeCategory(body.category);
       addSet('category = ?', categoryValue || null);

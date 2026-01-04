@@ -458,8 +458,8 @@ export function ShopPage() {
               Please check back soon for new coastal pieces.
             </p>
           </div>
-        ) : (
-          <div className="space-y-12">
+          ) : (
+            <div className="space-y-16">
             {orderedSections.map((category) => {
               const items = groupedProducts[category.slug] || [];
               if (items.length === 0) return null;
@@ -471,7 +471,7 @@ export function ShopPage() {
                 null;
               const description = copy?.description ?? category.description ?? '';
               return (
-                <section key={category.slug} className="mb-10">
+                <section key={category.slug} className="mb-14">
                   <div className="text-center mb-4">
                     <h2 className="text-2xl md:text-3xl font-serif tracking-tight text-slate-900 uppercase">
                       {copy?.title || category.name}

@@ -773,18 +773,18 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                   />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Price</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={editProductForm?.price || ''}
-                      onChange={(e) => onEditFormChange('price', e.target.value)}
-                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    />
-                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Price</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={editProductForm?.price || ''}
+                        disabled
+                        className="w-full rounded-md border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed"
+                      />
+                    </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
                     <input
