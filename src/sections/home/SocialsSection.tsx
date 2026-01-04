@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { TikTokEmbed } from '../../components/TikTokEmbed';
 
 const TIKTOK_VIDEO_ID = '7534342632328138039';
 const TIKTOK_CITE_URL = 'https://www.tiktok.com/@thechesapeakeshell/video/7534342632328138039';
@@ -123,41 +124,8 @@ function EmbedFrame({ title, src, openUrl, openLabel, containerClassName }: Embe
   );
 }
 
-interface PreviewFrameProps {
-  title: string;
-  onOpen: () => void;
-}
-
-function PreviewFrame({ title, onOpen }: PreviewFrameProps) {
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex h-[360px] w-full flex-col items-center justify-center gap-3 rounded-xl text-center transition hover:text-gray-800"
-    >
-      <p className="text-xs uppercase tracking-[0.3em] text-gray-500">{title}</p>
-      <p className="text-sm text-gray-600">Tap to open.</p>
-      <span className="rounded-full border border-gray-900 px-4 py-2 text-xs uppercase tracking-[0.2em] text-gray-900 hover:bg-gray-900 hover:text-white">
-        Open {title}
-      </span>
-    </button>
-  );
-}
-
 export function SocialsSection() {
   const isMobile = useIsMobile(1024);
-  const [activeModal, setActiveModal] = useState<'tiktok' | 'instagram' | null>(null);
-
-  useEffect(() => {
-    if (!activeModal) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setActiveModal(null);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeModal]);
 
   return (
     <section className="py-16 md:py-20 border-t border-gray-100">
@@ -181,10 +149,14 @@ export function SocialsSection() {
               </a>
             </div>
             {isMobile ? (
-              <PreviewFrame
-                title="TikTok"
-                onOpen={() => setActiveModal('tiktok')}
-              />
+              // Mobile embeds rendered inline with generous fixed height to prevent internal iframe scrollbars.
+              <div className="h-[640px] w-full overflow-hidden rounded-2xl">
+                <TikTokEmbed
+                  videoId={TIKTOK_VIDEO_ID}
+                  citeUrl={TIKTOK_CITE_URL}
+                  className="h-full"
+                />
+              </div>
             ) : (
               <EmbedFrame
                 title="TikTok"
@@ -208,10 +180,16 @@ export function SocialsSection() {
               </a>
             </div>
             {isMobile ? (
-              <PreviewFrame
-                title="Instagram"
-                onOpen={() => setActiveModal('instagram')}
-              />
+              <div className="h-[640px] w-full overflow-hidden rounded-2xl">
+                <iframe
+                  title="Instagram embed"
+                  src={INSTAGRAM_EMBED_URL}
+                  className="h-full w-full border-0"
+                  loading="lazy"
+                  scrolling="no"
+                  style={{ overflow: 'hidden' }}
+                />
+              </div>
             ) : (
               <EmbedFrame
                 title="Instagram"
@@ -224,46 +202,6 @@ export function SocialsSection() {
           </div>
         </div>
       </div>
-
-      {activeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="relative h-[90vh] w-[min(520px,92vw)] rounded-2xl bg-white">
-            <button
-              type="button"
-              onClick={() => setActiveModal(null)}
-              className="absolute right-3 top-3 rounded-full border border-gray-200 bg-white/90 px-3 py-1 text-xs uppercase tracking-[0.2em] text-gray-700 hover:text-gray-900"
-            >
-              Close
-            </button>
-            <div className="h-full w-full overflow-hidden rounded-2xl">
-              {/* Mobile renders embeds in a tall modal to avoid provider iframe overflow/scrollbars. */}
-              {activeModal === 'tiktok' ? (
-                <EmbedFrame
-                  title="TikTok"
-                  src={TIKTOK_EMBED_URL}
-                  openUrl={TIKTOK_CITE_URL}
-                  openLabel="Open on TikTok"
-                  containerClassName="h-full"
-                />
-              ) : (
-                <EmbedFrame
-                  title="Instagram"
-                  src={INSTAGRAM_EMBED_URL}
-                  openUrl="https://www.instagram.com/thechesapeakeshell"
-                  openLabel="Open on Instagram"
-                  containerClassName="h-full"
-                />
-              )}
-            </div>
-          </div>
-          <button
-            type="button"
-            aria-label="Close socials embed modal"
-            className="absolute inset-0"
-            onClick={() => setActiveModal(null)}
-          />
-        </div>
-      )}
     </section>
   );
 }
