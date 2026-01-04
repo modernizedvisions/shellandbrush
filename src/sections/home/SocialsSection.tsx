@@ -147,25 +147,26 @@ export function SocialsSection() {
           <h2 className="text-3xl md:text-4xl font-serif font-semibold text-gray-900">
             SOCIALS
           </h2>
-                  <div className=\"mt-4 space-y-2\">
+          <div className="mt-4 space-y-2">
             <a
-              href=\"https://www.tiktok.com/@thechesapeakeshell\"
-              target=\"_blank\"
-              rel=\"noreferrer noopener\"
-              className=\"block text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700\"
+              href="https://www.tiktok.com/@thechesapeakeshell"
+              target="_blank"
+              rel="noreferrer noopener"
+              className="block text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700"
             >
-              Follow on TikTok ?
+              Follow on TikTok ➜
             </a>
 
             <a
-              href=\"https://www.instagram.com/thechesapeakeshell\"
-              target=\"_blank\"
-              rel=\"noreferrer noopener\"
-              className=\"block text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700\"
+              href="https://www.instagram.com/thechesapeakeshell"
+              target="_blank"
+              rel="noreferrer noopener"
+              className="block text-xs uppercase tracking-[0.3em] text-gray-500 hover:text-gray-700"
             >
-              Follow on Instagram ?
+              Follow on Instagram ➜
             </a>
-          </div></div>
+          </div>
+        </div>
 
         <div className="grid gap-10 lg:grid-cols-2">
           <div className="space-y-4">
@@ -236,5 +237,6 @@ export function SocialsSection() {
     </section>
   );
 }
+
 
 
