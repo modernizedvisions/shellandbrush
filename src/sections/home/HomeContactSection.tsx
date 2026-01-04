@@ -8,11 +8,14 @@ export function HomeContactSection() {
           CONTACT
         </h2>
         <p className="mt-3 text-sm md:text-base text-gray-600 uppercase">
-          For commissions, custom orders and questions, send a note below. I'd love to hear from you.
+          <span className="block">
+            For commissions, custom orders and questions, send a note below.
+          </span>
+          <span className="block">I'd love to hear from you.</span>
         </p>
       </div>
 
-      <div className="mt-10">
+      <div className="mt-6">
         <ContactForm
           showHeading={false}
           useDefaultBackground={false}

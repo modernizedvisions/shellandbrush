@@ -59,6 +59,17 @@ export function ContactFooterSection() {
           <p className="text-xs uppercase tracking-[0.25em] text-gray-500">
             hello@shellandbrush.com
           </p>
+          <p className="text-xs uppercase tracking-[0.25em] text-gray-500">
+            Built by{' '}
+            <a
+              href="https://modernizedvisions.agency"
+              target="_blank"
+              rel="noreferrer noopener"
+              className="underline hover:text-gray-700"
+            >
+              Modernized Visions
+            </a>
+          </p>
           <Link to="/admin" className="text-xs uppercase tracking-[0.25em] text-gray-500 hover:text-gray-700">
             Admin
           </Link>

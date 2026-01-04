@@ -49,6 +49,7 @@ export function ProductDetailPage() {
 
   useEffect(() => {
     setCurrentIndex(0);
+    window.scrollTo({ top: 0, behavior: 'auto' });
   }, [productId]);
 
   const handlePrev = () => {

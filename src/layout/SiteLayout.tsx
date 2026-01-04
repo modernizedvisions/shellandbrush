@@ -144,6 +144,9 @@ export function SiteLayout() {
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
             <p className="text-sm text-gray-500">© 2026 Shell &amp; Brush. All rights reserved.</p>
+            <p className="text-sm text-gray-500">
+              Built By <a href="https://modernizedvisions.agency" target="_blank" rel="noreferrer noopener" className="underline hover:text-gray-700">Modernized Visions</a>
+            </p>
           </div>
         </div>
       </footer>
@@ -152,3 +155,4 @@ export function SiteLayout() {
     </div>
   );
 }
+

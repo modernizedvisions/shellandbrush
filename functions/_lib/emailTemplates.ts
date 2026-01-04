@@ -52,7 +52,7 @@ export function renderOwnerInvoicePaidEmail(model: BaseEmailModel & { invoiceId:
 }
 
 function buildEmail(model: BaseEmailModel & { subject: string }) {
-  const createdAt = model.createdAtIso ? new Date(model.createdAtIso) : new Date();
+  const createdAt = model.createdAtIso ? parseDate(model.createdAtIso) : new Date();
   const address = formatAddress(model.shippingAddress);
   const hasAddress = !!address;
   const { subtotalCents, shippingCents, totalCents, currency } = model.amounts;
@@ -183,6 +183,16 @@ function formatAddress(address: EmailAddress) {
     .map((p) => (p || '').trim())
     .filter(Boolean);
   return parts.join(', ');
+}
+
+function parseDate(value: string) {
+  const trimmed = value.trim();
+  const normalized = trimmed.includes(' ') ? trimmed.replace(' ', 'T') : trimmed;
+  const withZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(normalized)
+    ? normalized
+    : `${normalized}Z`;
+  const date = new Date(withZone);
+  return Number.isNaN(date.getTime()) ? new Date() : date;
 }
 
 function formatDate(date: Date) {
