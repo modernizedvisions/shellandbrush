@@ -1,5 +1,8 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Archive } from 'lucide-react';
+import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { AdminSectionHeader } from './AdminSectionHeader';
 import { formatDateTimeEastern } from '../../lib/date';
@@ -13,6 +16,7 @@ interface AdminCustomOrdersTabProps {
   onCreateOrder: (data: any) => Promise<any>;
   onReloadOrders?: () => Promise<void> | void;
   onSendPaymentLink?: (id: string) => Promise<void> | void;
+  onArchiveCustomOrder?: (id: string) => Promise<void> | void;
   initialDraft?: any;
   onDraftConsumed?: () => void;
   isLoading?: boolean;
@@ -24,6 +28,7 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
   onCreateOrder,
   onReloadOrders,
   onSendPaymentLink,
+  onArchiveCustomOrder,
   initialDraft,
   onDraftConsumed,
   isLoading,
@@ -32,6 +37,9 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   const [createImageFile, setCreateImageFile] = useState<File | null>(null);
   const [createImagePreview, setCreateImagePreview] = useState<string | null>(null);
   const [createImageError, setCreateImageError] = useState<string | null>(null);
@@ -97,6 +105,8 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
   const closeView = () => {
     setIsViewOpen(false);
     setSelectedOrder(null);
+    setIsArchiveConfirmOpen(false);
+    setArchiveError(null);
   };
 
   const formatCurrency = (cents: number | null | undefined) => `$${((cents ?? 0) / 100).toFixed(2)}`;
@@ -104,6 +114,10 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
     value ? formatDateTimeEastern(value) : 'Unknown date';
   const normalizeDisplayId = (order: any) =>
     order.displayCustomOrderId || order.display_custom_order_id || order.id || 'Order';
+  const archiveDisplayId = selectedOrder ? normalizeDisplayId(selectedOrder) : 'Order';
+  const archiveDescription = `Confirm archiving "${archiveDisplayId}". This removes it from the active list but keeps it saved for records.${
+    archiveError ? ` Error: ${archiveError}` : ''
+  }`;
   const handleCreateImageSelected = (file: File) => {
     if (!file) return;
     if (!file.type.startsWith('image/')) {
@@ -163,6 +177,29 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
       setImageActionError(err instanceof Error ? err.message : 'Failed to remove image.');
     } finally {
       setIsImageBusy(false);
+    }
+  };
+  const handleArchiveOrder = async () => {
+    if (!selectedOrder) return;
+    if (!onArchiveCustomOrder) {
+      const message = 'Archiving is not available.';
+      setArchiveError(message);
+      toast.error(message);
+      return;
+    }
+    setIsArchiving(true);
+    setArchiveError(null);
+    try {
+      await onArchiveCustomOrder(selectedOrder.id);
+      setIsArchiveConfirmOpen(false);
+      closeView();
+      toast.success('Custom order archived.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to archive custom order.';
+      setArchiveError(message);
+      toast.error(message);
+    } finally {
+      setIsArchiving(false);
     }
   };
   return (
@@ -342,13 +379,27 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
       {isViewOpen && selectedOrder && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-3 py-6">
           <div className="relative w-full max-w-xl max-h-[calc(100vh-3rem)] rounded-2xl bg-white shadow-xl border border-slate-100 p-6 overflow-hidden flex flex-col">
-            <button
-              type="button"
-              onClick={closeView}
-              className="absolute right-3 top-3 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
-            >
-              CLOSE
-            </button>
+            <div className="absolute right-3 top-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={closeView}
+                className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+              >
+                CLOSE
+              </button>
+              <button
+                type="button"
+                aria-label="Archive custom order"
+                onClick={() => {
+                  setArchiveError(null);
+                  setIsArchiveConfirmOpen(true);
+                }}
+                disabled={!onArchiveCustomOrder || isArchiving}
+                className="rounded-full bg-slate-100 p-2 text-slate-700 hover:bg-slate-200 disabled:opacity-60"
+              >
+                <Archive className="h-4 w-4" />
+              </button>
+            </div>
 
             <div className="pb-4">
               <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-1">Custom Order</p>
@@ -524,6 +575,23 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={isArchiveConfirmOpen}
+        title="Archive custom order?"
+        description={archiveDescription}
+        confirmText={isArchiving ? 'Archiving...' : 'Archive'}
+        cancelText="Cancel"
+        confirmVariant="danger"
+        confirmDisabled={isArchiving}
+        cancelDisabled={isArchiving}
+        onCancel={() => {
+          if (isArchiving) return;
+          setIsArchiveConfirmOpen(false);
+          setArchiveError(null);
+        }}
+        onConfirm={handleArchiveOrder}
+      />
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent>

@@ -63,6 +63,8 @@ CREATE TABLE IF NOT EXISTS custom_orders (
   image_url TEXT,
   image_key TEXT,
   image_updated_at TEXT,
+  archived INTEGER NOT NULL DEFAULT 0,
+  archived_at TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS categories (

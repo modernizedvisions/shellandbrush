@@ -245,6 +245,8 @@ async function ensureCustomOrdersSchema(db: D1Database) {
     shipping_country TEXT,
     shipping_phone TEXT,
     shipping_cents INTEGER DEFAULT 0,
+    archived INTEGER NOT NULL DEFAULT 0,
+    archived_at TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );`).run();
 
@@ -264,6 +266,12 @@ async function ensureCustomOrdersSchema(db: D1Database) {
   await ensureColumn('image_updated_at');
   if (!names.includes('shipping_cents')) {
     await db.prepare(`ALTER TABLE custom_orders ADD COLUMN shipping_cents INTEGER DEFAULT 0;`).run();
+  }
+  if (!names.includes('archived')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;`).run();
+  }
+  if (!names.includes('archived_at')) {
+    await db.prepare(`ALTER TABLE custom_orders ADD COLUMN archived_at TEXT;`).run();
   }
   const shippingCols = [
     'shipping_name',

@@ -34,6 +34,7 @@ import {
   getAdminCustomOrders,
   createAdminCustomOrder,
   sendAdminCustomOrderPaymentLink,
+  archiveAdminCustomOrder,
 } from '../lib/db/customOrders';
 import type { AdminCustomOrder } from '../lib/db/customOrders';
 
@@ -1151,6 +1152,17 @@ export function AdminPage() {
                 setCustomOrdersError(err instanceof Error ? err.message : 'Failed to send payment link');
               } finally {
                 setIsLoadingCustomOrders(false);
+              }
+            }}
+            onArchiveCustomOrder={async (orderId: string) => {
+              try {
+                setCustomOrdersError(null);
+                await archiveAdminCustomOrder(orderId);
+                setCustomOrders((prev) => prev.filter((order) => order.id !== orderId));
+              } catch (err) {
+                console.error('Failed to archive custom order', err);
+                setCustomOrdersError(err instanceof Error ? err.message : 'Failed to archive custom order');
+                throw err;
               }
             }}
           />

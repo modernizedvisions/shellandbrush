@@ -217,3 +217,20 @@ export async function sendAdminCustomOrderPaymentLink(
     emailOk: data.emailOk,
   };
 }
+
+export async function archiveAdminCustomOrder(id: string): Promise<void> {
+  const res = await adminFetch(`${ADMIN_CUSTOM_ORDERS_PATH}/${encodeURIComponent(id)}/archive`, {
+    method: 'PATCH',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message =
+      (data && (data.error || data.detail)) ||
+      `Failed to archive custom order (${res.status})`;
+    throw new Error(message);
+  }
+}
