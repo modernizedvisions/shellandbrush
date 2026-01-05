@@ -207,8 +207,65 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
         ) : allCustomOrders.length === 0 ? (
           <div className="p-4 text-sm text-gray-600">No custom orders yet.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <>
+            <div className="sm:hidden">
+              <table className="w-full table-fixed divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50 text-xs font-semibold uppercase text-gray-600">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Customer</th>
+                    <th className="px-3 py-2 text-center">Status</th>
+                    <th className="px-3 py-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 bg-white text-gray-900">
+                  {allCustomOrders.map((order) => {
+                    const statusLabel = order.status || 'pending';
+                    const isPaid = statusLabel === 'paid';
+                    const hasPaymentLink = !!order.paymentLink;
+                    return (
+                      <tr key={order.id}>
+                        <td className="px-3 py-2 min-w-0">
+                          <div className="truncate">{order.customerName || 'Customer'}</div>
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <span
+                            role="img"
+                            aria-label={isPaid ? 'Paid' : 'Not paid'}
+                            className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-sm font-semibold ${
+                              isPaid ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                            }`}
+                          >
+                            {isPaid ? '\u2713' : '\u2715'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex flex-col items-end gap-2">
+                            <button
+                              type="button"
+                              className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:border-gray-400"
+                              onClick={() => openView(order)}
+                            >
+                              View
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                              disabled={isPaid}
+                              title={isPaid ? 'Already paid' : hasPaymentLink ? 'Resend payment link' : ''}
+                              onClick={() => onSendPaymentLink?.(order.id)}
+                            >
+                              {hasPaymentLink ? 'Resend Payment Link' : 'Send Payment Link'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50 text-xs font-semibold uppercase text-gray-600">
                 <tr>
                   <th className="px-4 py-2 text-left">Order ID</th>
@@ -271,8 +328,9 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
