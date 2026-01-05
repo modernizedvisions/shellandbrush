@@ -225,7 +225,9 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                     return (
                       <tr key={order.id}>
                         <td className="px-3 py-2 min-w-0">
-                          <div className="truncate">{order.customerName || 'Customer'}</div>
+                          <div className="whitespace-normal break-words">
+                            {order.customerName || 'Customer'}
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-center">
                           <span
@@ -238,23 +240,26 @@ export const AdminCustomOrdersTab: React.FC<AdminCustomOrdersTabProps> = ({
                             {isPaid ? '\u2713' : '\u2715'}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-right">
-                          <div className="flex flex-col items-end gap-2">
+                        <td className="px-3 py-2">
+                          <div className="flex flex-col gap-2">
                             <button
                               type="button"
-                              className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:border-gray-400"
+                              className="w-full rounded-md border border-gray-300 px-3 py-2 text-center text-xs font-medium text-gray-700 hover:border-gray-400"
                               onClick={() => openView(order)}
                             >
                               View
                             </button>
                             <button
                               type="button"
-                              className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                              className="w-full rounded-md border border-gray-300 px-3 py-2 text-center text-xs font-medium text-gray-700 disabled:opacity-60 disabled:cursor-not-allowed"
                               disabled={isPaid}
                               title={isPaid ? 'Already paid' : hasPaymentLink ? 'Resend payment link' : ''}
                               onClick={() => onSendPaymentLink?.(order.id)}
                             >
-                              {hasPaymentLink ? 'Resend Payment Link' : 'Send Payment Link'}
+                              <span className="block leading-tight">
+                                {hasPaymentLink ? 'Resend' : 'Send'}
+                              </span>
+                              <span className="block leading-tight">Payment</span>
                             </button>
                           </div>
                         </td>
