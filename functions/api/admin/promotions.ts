@@ -133,7 +133,10 @@ export async function onRequest(context: {
     return json({ error: 'Method not allowed' }, 405);
   } catch (error) {
     console.error('Admin promotions error', error);
-    return json({ error: 'Internal server error' }, 500);
+    return json(
+      { error: 'Internal server error', detail: String((error as any)?.message || error) },
+      500
+    );
   }
 }
 
@@ -163,11 +166,9 @@ async function handlePost(db: D1Database, request: Request): Promise<Response> {
   const bannerEnabled = !!body.bannerEnabled;
 
   try {
-    await db.prepare('BEGIN;').run();
     if (enabled) {
       await db
-        .prepare(`UPDATE promotions SET enabled = 0, updated_at = ${timestampSql} WHERE enabled = 1 AND id != ?;`)
-        .bind(id)
+        .prepare(`UPDATE promotions SET enabled = 0, updated_at = ${timestampSql} WHERE enabled = 1;`)
         .run();
     }
     const result = await db
@@ -192,15 +193,14 @@ async function handlePost(db: D1Database, request: Request): Promise<Response> {
       .run();
 
     if (!result.success) {
-      await db.prepare('ROLLBACK;').run();
       return json({ error: 'Failed to create promotion' }, 500);
     }
-
-    await db.prepare('COMMIT;').run();
   } catch (error) {
-    await db.prepare('ROLLBACK;').run();
     console.error('Failed to create promotion', error);
-    return json({ error: 'Failed to create promotion' }, 500);
+    return json(
+      { error: 'Failed to create promotion', detail: String((error as any)?.message || error) },
+      500
+    );
   }
 
   const created = await db
@@ -230,7 +230,6 @@ async function handlePut(db: D1Database, request: Request): Promise<Response> {
   const bannerEnabled = !!body.bannerEnabled;
 
   try {
-    await db.prepare('BEGIN;').run();
     if (enabled) {
       await db
         .prepare(`UPDATE promotions SET enabled = 0, updated_at = ${timestampSql} WHERE enabled = 1 AND id != ?;`)
@@ -260,18 +259,17 @@ async function handlePut(db: D1Database, request: Request): Promise<Response> {
       .run();
 
     if (!result.success) {
-      await db.prepare('ROLLBACK;').run();
       return json({ error: 'Failed to update promotion' }, 500);
     }
     if (result.meta?.changes === 0) {
-      await db.prepare('ROLLBACK;').run();
       return json({ error: 'Promotion not found' }, 404);
     }
-    await db.prepare('COMMIT;').run();
   } catch (error) {
-    await db.prepare('ROLLBACK;').run();
     console.error('Failed to update promotion', error);
-    return json({ error: 'Failed to update promotion' }, 500);
+    return json(
+      { error: 'Failed to update promotion', detail: String((error as any)?.message || error) },
+      500
+    );
   }
 
   const updated = await db
