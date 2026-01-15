@@ -1,4 +1,5 @@
-﻿import type { Product } from '../../../../src/lib/types';
+import Stripe from 'stripe';
+import type { Product } from '../../../../src/lib/types';
 import { requireAdmin } from '../../_lib/adminAuth';
 import { isBlockedImageUrl, normalizePublicImageUrl, resolvePublicImageUrl } from '../../_lib/imageUrls';
 import { getPublicImagesBaseUrl } from '../../_lib/imageBaseUrl';
@@ -110,6 +111,12 @@ const mapRowToProduct = (row: ProductRow, imageUrlMap: Map<string, string>, norm
     slug: row.slug ?? undefined,
   };
 };
+
+const createStripeClient = (secretKey: string) =>
+  new Stripe(secretKey, {
+    apiVersion: '2024-06-20',
+    httpClient: Stripe.createFetchHttpClient(),
+  });
 
 const safeParseJsonArray = (value: string | null): string[] => {
   if (!value) return [];
@@ -237,7 +244,7 @@ async function ensureProductSchema(db: D1Database) {
 }
 
 export async function onRequestPut(context: {
-  env: { DB: D1Database; ADMIN_PASSWORD?: string; PUBLIC_IMAGES_BASE_URL?: string };
+  env: { DB: D1Database; STRIPE_SECRET_KEY?: string; ADMIN_PASSWORD?: string; PUBLIC_IMAGES_BASE_URL?: string };
   request: Request;
   params: Record<string, string>;
 }): Promise<Response> {
@@ -320,10 +327,53 @@ export async function onRequestPut(context: {
       });
     }
 
+    const existing = await context.env.DB.prepare(
+      `SELECT price_cents, stripe_product_id, stripe_price_id FROM products WHERE id = ?;`
+    )
+      .bind(id)
+      .first<{ price_cents: number | null; stripe_product_id: string | null; stripe_price_id: string | null }>();
+
+    if (!existing) {
+      return new Response(JSON.stringify({ error: 'Product not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     const addSet = (clause: string, value: unknown) => {
       sets.push(clause);
       values.push(value);
     };
+
+    const incomingPriceCents =
+      body.priceCents === null || body.priceCents === undefined
+        ? undefined
+        : Math.round(body.priceCents);
+    const shouldUpdatePrice =
+      incomingPriceCents !== undefined && incomingPriceCents !== existing.price_cents;
+
+    if (shouldUpdatePrice) {
+      if (!existing.stripe_product_id) {
+        return new Response(JSON.stringify({ error: 'Product missing Stripe product id' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (!context.env.STRIPE_SECRET_KEY) {
+        return new Response(JSON.stringify({ error: 'Stripe is not configured' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const stripe = createStripeClient(context.env.STRIPE_SECRET_KEY);
+      const stripePrice = await stripe.prices.create({
+        product: existing.stripe_product_id,
+        unit_amount: incomingPriceCents,
+        currency: 'usd',
+      });
+      addSet('price_cents = ?', incomingPriceCents);
+      addSet('stripe_price_id = ?', stripePrice.id);
+    }
 
     if (body.name !== undefined) addSet('name = ?', body.name);
     if (body.name) addSet('slug = ?', toSlug(body.name));
@@ -377,7 +427,7 @@ export async function onRequestPut(context: {
     if (body.quantityAvailable !== undefined) addSet('quantity_available = ?', body.quantityAvailable);
     if (body.isOneOff !== undefined) addSet('is_one_off = ?', body.isOneOff ? 1 : 0);
     if (body.isActive !== undefined) addSet('is_active = ?', body.isActive ? 1 : 0);
-    if (body.stripePriceId !== undefined) addSet('stripe_price_id = ?', body.stripePriceId);
+    if (!shouldUpdatePrice && body.stripePriceId !== undefined) addSet('stripe_price_id = ?', body.stripePriceId);
     if (body.stripeProductId !== undefined) addSet('stripe_product_id = ?', body.stripeProductId);
     if (body.collection !== undefined) addSet('collection = ?', body.collection);
 
@@ -482,6 +532,7 @@ export async function onRequestDelete(context: {
     });
   }
 }
+
 
 
 

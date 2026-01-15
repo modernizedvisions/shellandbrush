@@ -781,8 +781,8 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                         min="0"
                         step="0.01"
                         value={editProductForm?.price || ''}
-                        disabled
-                        className="w-full rounded-md border border-gray-200 bg-gray-100 px-3 py-2 text-sm text-gray-500 cursor-not-allowed"
+                        onChange={(e) => onEditFormChange('price', e.target.value)}
+                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                       />
                     </div>
                   <div>
