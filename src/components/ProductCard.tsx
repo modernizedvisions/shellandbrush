@@ -123,6 +123,13 @@ export function ProductCard({ product, showEditOverlay = false, children }: Prod
           </span>
         </div>
       )}
+      {isEligibleForPromo && discountedCents !== null && !isSold && (
+        <div className="absolute top-3 left-3 z-20">
+          <span className="inline-flex items-center rounded-full bg-red-100 text-red-700 text-[10px] uppercase tracking-widest px-2 py-0.5">
+            Sale
+          </span>
+        </div>
+      )}
 
       <div className="p-2 sm:p-3 md:p-4">
         <div className="flex items-start justify-between mb-2">
@@ -135,14 +142,9 @@ export function ProductCard({ product, showEditOverlay = false, children }: Prod
           {hasPrice ? (
             <div className="text-xs sm:text-sm md:text-base text-gray-800 font-serif font-semibold">
               {isEligibleForPromo && discountedCents !== null ? (
-                <div>
-                  <span className="inline-flex items-center rounded-full bg-red-100 text-red-700 text-[10px] uppercase tracking-widest px-2 py-0.5 mb-1">
-                    Sale
-                  </span>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-gray-400 line-through">{formatPrice(product.priceCents)}</span>
-                    <span className="text-red-600">{formatPrice(discountedCents)}</span>
-                  </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-gray-400 line-through">{formatPrice(product.priceCents)}</span>
+                  <span className="text-red-600">{formatPrice(discountedCents)}</span>
                 </div>
               ) : (
                 formatPrice(product.priceCents)
