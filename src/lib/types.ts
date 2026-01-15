@@ -145,3 +145,23 @@ export interface Review {
   createdAt: string; // ISO date
 }
 
+
+export type PromotionScope = 'global' | 'categories';
+
+export interface PromotionPublic {
+  id: string;
+  name: string;
+  percentOff: number;
+  scope: PromotionScope;
+  categorySlugs: string[];
+  bannerEnabled: boolean;
+  bannerText: string;
+  startsAt: string | null;
+  endsAt: string | null;
+}
+
+export interface PromotionAdmin extends PromotionPublic {
+  enabled: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+}

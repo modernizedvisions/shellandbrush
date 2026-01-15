@@ -1,8 +1,9 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Product } from '../lib/types';
 import { useCartStore } from '../store/cartStore';
 import { useUIStore } from '../store/uiStore';
+import { getDiscountedCents, isPromotionEligible, usePromotion } from '../lib/promotions';
 
 interface ProductCardProps {
   product: Product;
@@ -20,6 +21,7 @@ export function ProductCard({ product, showEditOverlay = false, children }: Prod
   const items = useCartStore((state) => state.items);
   const isOneOffInCart = useCartStore((state) => state.isOneOffInCart);
   const setCartDrawerOpen = useUIStore((state) => state.setCartDrawerOpen);
+  const { promotion } = usePromotion();
 
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -36,6 +38,17 @@ export function ProductCard({ product, showEditOverlay = false, children }: Prod
   const cannotAddMore = isOneOff && qtyInCart > 0;
   const isAtMax = maxQty !== null && qtyInCart >= maxQty;
   const canBuy = hasPrice && !isSold;
+  const isEligibleForPromo =
+    hasPrice &&
+    isPromotionEligible(promotion, {
+      category: product.category ?? product.type,
+      type: product.type,
+      categories: product.categories ?? null,
+    });
+  const discountedCents =
+    isEligibleForPromo && promotion && product.priceCents !== undefined && product.priceCents !== null
+      ? getDiscountedCents(product.priceCents, promotion.percentOff)
+      : null;
 
   const handleAddToCart = () => {
     if (!canBuy || cannotAddMore || isAtMax) return;
@@ -121,11 +134,24 @@ export function ProductCard({ product, showEditOverlay = false, children }: Prod
         <div className="mt-2">
           {hasPrice ? (
             <div className="text-xs sm:text-sm md:text-base text-gray-800 font-serif font-semibold">
-              {formatPrice(product.priceCents)}
+              {isEligibleForPromo && discountedCents !== null ? (
+                <div>
+                  <span className="inline-flex items-center rounded-full bg-red-100 text-red-700 text-[10px] uppercase tracking-widest px-2 py-0.5 mb-1">
+                    Sale
+                  </span>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-gray-400 line-through">{formatPrice(product.priceCents)}</span>
+                    <span className="text-red-600">{formatPrice(discountedCents)}</span>
+                  </div>
+                </div>
+              ) : (
+                formatPrice(product.priceCents)
+              )}
             </div>
           ) : (
-            <span className="text-xs sm:text-sm text-gray-500">�</span>
+            <span className="text-xs sm:text-sm text-gray-500">?</span>
           )}
+
 
           <div className="product-actions mt-2 sm:mt-3 grid grid-cols-2 gap-1.5 sm:gap-2">
             <button

@@ -6,6 +6,7 @@ import { Product } from '../lib/types';
 import { useCartStore } from '../store/cartStore';
 import { useUIStore } from '../store/uiStore';
 import { ProductReviews } from '@/components/product/ProductReviews';
+import { getDiscountedCents, isPromotionEligible, usePromotion } from '../lib/promotions';
 
 export function ProductDetailPage() {
   const { productId } = useParams();
@@ -14,6 +15,7 @@ export function ProductDetailPage() {
   const isOneOffInCart = useCartStore((state) => state.isOneOffInCart);
   const isProductInCart = useCartStore((state) => state.isProductInCart);
   const setCartDrawerOpen = useUIStore((state) => state.setCartDrawerOpen);
+  const { promotion } = usePromotion();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [related, setRelated] = useState<Product[]>([]);
@@ -65,6 +67,17 @@ export function ProductDetailPage() {
   const hasPrice = product?.priceCents !== undefined && product?.priceCents !== null;
   const isSold = product?.isSold || (product?.quantityAvailable !== undefined && (product.quantityAvailable ?? 0) <= 0);
   const canPurchase = !!product && hasPrice && !isSold;
+  const isEligibleForPromo =
+    hasPrice &&
+    isPromotionEligible(promotion, {
+      category: product?.category ?? product?.type ?? null,
+      type: product?.type ?? null,
+      categories: product?.categories ?? null,
+    });
+  const discountedCents =
+    isEligibleForPromo && promotion && product?.priceCents !== undefined && product?.priceCents !== null
+      ? getDiscountedCents(product.priceCents, promotion.percentOff)
+      : null;
 
   const handleAddToCart = () => {
     if (!product || !hasPrice || isSold) return;
@@ -155,7 +168,21 @@ export function ProductDetailPage() {
             <div className="space-y-4">
               <h1 className="text-3xl font-semibold text-gray-900">{loadingProduct ? 'Loading...' : product?.name}</h1>
               {product?.priceCents !== undefined && product?.priceCents !== null && (
-                <p className="text-sm font-serif font-medium text-slate-800">{formatPrice(product.priceCents)}</p>
+                <div className="text-sm font-serif font-medium text-slate-800">
+                  {isEligibleForPromo && discountedCents !== null ? (
+                    <div>
+                      <span className="inline-flex items-center rounded-full bg-red-100 text-red-700 text-[10px] uppercase tracking-widest px-2 py-0.5 mb-1">
+                        Sale
+                      </span>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-gray-400 line-through">{formatPrice(product.priceCents)}</span>
+                        <span className="text-red-600">{formatPrice(discountedCents)}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    formatPrice(product.priceCents)
+                  )}
+                </div>
               )}
               <p className="text-gray-700 leading-relaxed">{product?.description}</p>
               <div className="flex gap-3 pt-2">
@@ -195,14 +222,43 @@ export function ProductDetailPage() {
               </div>
             </div>
             <div ref={relatedRef} className="flex gap-4 overflow-x-auto pb-2">
-              {related.map((item) => (
-                <div key={item.id} className="w-64 flex-shrink-0 bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
+              {related.map((item) => {
+                const relatedEligible =
+                  item.priceCents !== undefined &&
+                  item.priceCents !== null &&
+                  isPromotionEligible(promotion, {
+                    category: item.category ?? item.type,
+                    type: item.type,
+                    categories: item.categories ?? null,
+                  });
+                const relatedDiscounted =
+                  relatedEligible && promotion && item.priceCents !== undefined && item.priceCents !== null
+                    ? getDiscountedCents(item.priceCents, promotion.percentOff)
+                    : null;
+                return (
+                  <div key={item.id} className="w-64 flex-shrink-0 bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
                   <div className="aspect-square bg-gray-100 overflow-hidden">
                     <img src={item.imageUrl || item.imageUrls?.[0]} alt={item.name} className="w-full h-full object-cover" />
                   </div>
                   <div className="p-4 space-y-2">
                     <h3 className="text-lg font-semibold text-gray-900">{item.name}</h3>
-                    {item.priceCents && <p className="text-sm font-serif font-bold text-gray-900">{formatPrice(item.priceCents)}</p>}
+                    {item.priceCents !== undefined && item.priceCents !== null && (
+                      <div className="text-sm font-serif font-bold text-gray-900">
+                        {relatedEligible && relatedDiscounted !== null ? (
+                          <div>
+                            <span className="inline-flex items-center rounded-full bg-red-100 text-red-700 text-[10px] uppercase tracking-widest px-2 py-0.5 mb-1">
+                              Sale
+                            </span>
+                            <div className="flex items-baseline gap-2">
+                              <span className="text-gray-400 line-through">{formatPrice(item.priceCents)}</span>
+                              <span className="text-red-600">{formatPrice(relatedDiscounted)}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          formatPrice(item.priceCents)
+                        )}
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <button
                         onClick={() => navigate(`/product/${item.id}`)}
@@ -240,7 +296,7 @@ export function ProductDetailPage() {
                     </div>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         </section>

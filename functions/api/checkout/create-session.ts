@@ -34,6 +34,25 @@ type CategoryShippingRow = {
   name: string | null;
   shipping_cents: number | null;
 };
+type PromotionRow = {
+  id: string;
+  name: string | null;
+  percent_off: number | null;
+  scope: 'global' | 'categories' | null;
+  category_slugs_json: string | null;
+  banner_enabled: number | null;
+  banner_text: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  enabled: number | null;
+};
+
+type ActivePromotion = {
+  id: string;
+  percentOff: number;
+  scope: 'global' | 'categories';
+  categorySlugs: string[];
+};
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -53,6 +72,89 @@ const normalizeOrigin = (request: Request) => {
   const origin = originHeader && originHeader.startsWith('http') ? originHeader : `${url.protocol}//${url.host}`;
   return origin.replace(/\/$/, '');
 };
+
+const normalizeValue = (value?: string | null) => (value || '').trim().toLowerCase();
+
+const parseCategorySlugs = (value: string | null): string[] => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item) => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
+const isValidDateValue = (value?: string | null) => {
+  if (!value) return true;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed);
+};
+
+const loadActivePromotion = async (db: D1Database): Promise<ActivePromotion | null> => {
+  try {
+    const row = await db
+      .prepare(
+        `SELECT id, percent_off, scope, category_slugs_json, starts_at, ends_at, enabled
+         FROM promotions WHERE enabled = 1 ORDER BY updated_at DESC LIMIT 1;`
+      )
+      .first<PromotionRow>();
+
+    if (!row || row.enabled !== 1) return null;
+    if (!isValidDateValue(row.starts_at) || !isValidDateValue(row.ends_at)) return null;
+    const now = Date.now();
+    const startsAt = row.starts_at ? Date.parse(row.starts_at) : null;
+    const endsAt = row.ends_at ? Date.parse(row.ends_at) : null;
+    if (startsAt !== null && Number.isFinite(startsAt) && now < startsAt) return null;
+    if (endsAt !== null && Number.isFinite(endsAt) && now > endsAt) return null;
+
+    const percentOff = Math.round(Number(row.percent_off ?? 0));
+    if (!Number.isFinite(percentOff) || percentOff <= 0) return null;
+    const scope = row.scope === 'categories' ? 'categories' : 'global';
+    return {
+      id: row.id,
+      percentOff,
+      scope,
+      categorySlugs: parseCategorySlugs(row.category_slugs_json),
+    };
+  } catch (error) {
+    console.error('Failed to load active promotion', error);
+    return null;
+  }
+};
+
+const buildEligibleCategorySet = async (
+  db: D1Database,
+  slugs: string[]
+): Promise<Set<string>> => {
+  const normalized = slugs.map((slug) => normalizeValue(slug)).filter(Boolean);
+  if (!normalized.length) return new Set();
+  const placeholders = normalized.map(() => '?').join(',');
+  try {
+    const { results } = await db
+      .prepare(`SELECT slug, name FROM categories WHERE slug IN (${placeholders});`)
+      .bind(...normalized)
+      .all<{ slug: string | null; name: string | null }>();
+    const eligible = new Set<string>();
+    (results || []).forEach((row) => {
+      const slug = normalizeValue(row.slug);
+      const name = normalizeValue(row.name);
+      if (slug) eligible.add(slug);
+      if (name) eligible.add(name);
+    });
+    return eligible;
+  } catch (error) {
+    console.error('Failed to load promo category slugs', error);
+    return new Set();
+  }
+};
+
+const getDiscountedCents = (priceCents: number, percentOff: number) =>
+  Math.round(priceCents * (100 - percentOff) / 100);
 
 export const onRequestPost = async (context: {
   request: Request;
@@ -131,6 +233,12 @@ export const onRequestPost = async (context: {
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
     const cartCategoryItems: CartCategoryItem[] = [];
     let subtotalCents = 0;
+    const promotion = await loadActivePromotion(env.DB);
+    const eligibleCategorySet =
+      promotion && promotion.scope === 'categories'
+        ? await buildEligibleCategorySet(env.DB, promotion.categorySlugs)
+        : new Set<string>();
+    let discountedCount = 0;
 
     for (const pid of productIds) {
       const product = productMap.get(pid);
@@ -159,10 +267,35 @@ export const onRequestPost = async (context: {
         return json({ error: `Requested quantity exceeds available inventory for ${product.name || pid}` }, 400);
       }
 
-      lineItems.push({
-        price: product.stripe_price_id,
-        quantity,
-      });
+      const normalizedCategory = normalizeValue(product.category);
+      const eligible =
+        promotion?.scope === 'global' ||
+        (promotion?.scope === 'categories' && normalizedCategory && eligibleCategorySet.has(normalizedCategory));
+      const discountedCents =
+        eligible && promotion ? getDiscountedCents(product.price_cents, promotion.percentOff) : product.price_cents;
+
+      if (
+        eligible &&
+        promotion &&
+        product.stripe_product_id &&
+        Number.isFinite(discountedCents)
+      ) {
+        lineItems.push({
+          price_data: {
+            currency: 'usd',
+            unit_amount: Math.max(0, Math.round(discountedCents)),
+            product: product.stripe_product_id,
+            metadata: { sb_promo_id: promotion.id },
+          },
+          quantity,
+        });
+        discountedCount += 1;
+      } else {
+        lineItems.push({
+          price: product.stripe_price_id,
+          quantity,
+        });
+      }
       subtotalCents += (product.price_cents ?? 0) * quantity;
       cartCategoryItems.push({ category: product.category ?? null });
     }
@@ -177,6 +310,13 @@ export const onRequestPost = async (context: {
     const shippingCents = calculateShippingCentsForCart(cartCategoryItems, categoryConfigs);
     const expiresAt = Math.floor(Date.now() / 1000) + 1800; // Stripe requires at least 30 minutes
     console.log('Creating embedded checkout session with expires_at', expiresAt);
+    if (promotion && discountedCount > 0) {
+      console.log('Promotion applied to checkout session', {
+        promotionId: promotion.id,
+        discountedCount,
+        scope: promotion.scope,
+      });
+    }
 
     try {
       const session = await stripe.checkout.sessions.create({

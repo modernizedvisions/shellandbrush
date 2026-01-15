@@ -4,6 +4,7 @@ import { loadStripe, type EmbeddedCheckout } from '@stripe/stripe-js';
 import { BannerMessage } from '../components/BannerMessage';
 import { createEmbeddedCheckoutSession, fetchCategories, fetchProductById } from '../lib/api';
 import type { Category, Product } from '../lib/types';
+import { getDiscountedCents, isPromotionEligible, usePromotion } from '../lib/promotions';
 import { useCartStore } from '../store/cartStore';
 import { calculateShippingCentsForCart } from '../lib/shipping';
 
@@ -31,6 +32,7 @@ export function CheckoutPage() {
   const cartItems = useCartStore((state) => state.items);
   const cartSubtotal = useCartStore((state) => state.getSubtotal());
   const stripeContainerRef = useRef<HTMLDivElement | null>(null);
+  const { promotion } = usePromotion();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -239,6 +241,8 @@ export function CheckoutPage() {
         imageUrl: item.imageUrl,
         quantity: item.quantity,
         priceCents: item.priceCents,
+        category: item.category ?? null,
+        categories: item.categories ?? null,
       }));
     }
     if (product) {
@@ -251,6 +255,8 @@ export function CheckoutPage() {
           imageUrl: (product as any).thumbnailUrl || (product as any).imageUrl || null,
           quantity: 1,
           priceCents: product.priceCents ?? 0,
+          category: product.category ?? product.type ?? null,
+          categories: product.categories ?? null,
         },
       ];
     }
@@ -285,8 +291,33 @@ export function CheckoutPage() {
     return previewItems.reduce((sum, item) => sum + item.priceCents * (item.quantity || 1), 0);
   }, [cartItems.length, cartSubtotal, previewItems]);
 
+  const discountedSubtotalCents = useMemo(() => {
+    if (!promotion) return subtotalCents;
+    if (cartItems.length) {
+      return cartItems.reduce((sum, item) => {
+        const eligible = isPromotionEligible(promotion, {
+          category: item.category ?? null,
+          type: null,
+          categories: item.categories ?? null,
+        });
+        const discounted = eligible ? getDiscountedCents(item.priceCents, promotion.percentOff) : item.priceCents;
+        return sum + discounted * item.quantity;
+      }, 0);
+    }
+    if (product) {
+      const price = product.priceCents ?? 0;
+      const eligible = isPromotionEligible(promotion, {
+        category: product.category ?? product.type ?? null,
+        type: product.type ?? null,
+        categories: product.categories ?? null,
+      });
+      return eligible ? getDiscountedCents(price, promotion.percentOff) : price;
+    }
+    return subtotalCents;
+  }, [promotion, cartItems, product, subtotalCents]);
+
   const shippingCents = calculateShippingCentsForCart(shippingItems, categories);
-  const totalCents = (subtotalCents || 0) + shippingCents;
+  const totalCents = (discountedSubtotalCents || 0) + shippingCents;
 
   const formatMoney = (cents: number) => `$${((cents ?? 0) / 100).toFixed(2)}`;
 
@@ -330,7 +361,17 @@ export function CheckoutPage() {
                   <div className="text-sm text-gray-600">No items to display.</div>
                 )}
                 {previewItems.map((item) => {
-                  const lineTotal = (item.priceCents ?? 0) * (item.quantity || 1);
+                  const eligible =
+                    !!promotion &&
+                    isPromotionEligible(promotion, {
+                      category: (item as any).category ?? null,
+                      type: null,
+                      categories: (item as any).categories ?? null,
+                    });
+                  const unitPrice = eligible && promotion
+                    ? getDiscountedCents(item.priceCents ?? 0, promotion.percentOff)
+                    : (item.priceCents ?? 0);
+                  const lineTotal = unitPrice * (item.quantity || 1);
                   return (
                     <div key={`${item.id}-${item.name}`} className="flex gap-3">
                       {item.imageUrl ? (
@@ -366,7 +407,7 @@ export function CheckoutPage() {
               <div className="border-t border-gray-200 pt-3 space-y-1 text-sm">
                 <div className="flex justify-between text-gray-700">
                   <span>Subtotal</span>
-                  <span className="font-serif font-medium">{formatMoney(subtotalCents || 0)}</span>
+                  <span className="font-serif font-medium">{formatMoney(discountedSubtotalCents || 0)}</span>
                 </div>
                 <div className="flex justify-between text-gray-700">
                   <span>Shipping</span>

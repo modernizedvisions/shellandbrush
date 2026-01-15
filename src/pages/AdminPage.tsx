@@ -29,6 +29,7 @@ import { AdminHomeTab } from '../components/admin/AdminHomeTab';
 import { AdminMessagesTab } from '../components/admin/AdminMessagesTab';
 import { AdminShopTab } from '../components/admin/AdminShopTab';
 import { AdminCustomOrdersTab } from '../components/admin/AdminCustomOrdersTab';
+import { AdminPromotionsTab } from '../components/admin/AdminPromotionsTab';
 import { OrderDetailsModal } from '../components/admin/OrderDetailsModal';
 import {
   getAdminCustomOrders,
@@ -106,7 +107,7 @@ export function AdminPage() {
     heroImages: [],
     heroRotationEnabled: false,
   });
-  const [activeTab, setActiveTab] = useState<'orders' | 'shop' | 'messages' | 'customOrders' | 'images' | 'sold'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'shop' | 'messages' | 'customOrders' | 'images' | 'sold' | 'promotions'>('orders');
   const [gallerySaveState, setGallerySaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [homeSaveState, setHomeSaveState] = useState<'idle' | 'saving' | 'success'>('idle');
   const [gallerySaveError, setGallerySaveError] = useState('');
@@ -1021,6 +1022,16 @@ export function AdminPage() {
               Messages
             </button>
             <button
+              onClick={() => setActiveTab('promotions')}
+              className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                activeTab === 'promotions'
+                  ? 'border-gray-900 text-gray-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Promotions
+            </button>
+            <button
               onClick={() => setActiveTab('customOrders')}
               className={`px-4 py-2 font-medium border-b-2 transition-colors ${
                 activeTab === 'customOrders'
@@ -1107,6 +1118,8 @@ export function AdminPage() {
             }}
           />
         )}
+
+        {activeTab === 'promotions' && <AdminPromotionsTab />}
 
         {activeTab === 'customOrders' && (
           <AdminCustomOrdersTab

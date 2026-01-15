@@ -4,14 +4,28 @@ import { Menu, X } from 'lucide-react';
 import { CartIcon } from '../components/cart/CartIcon';
 import { CartDrawer } from '../components/cart/CartDrawer';
 import { useUIStore } from '../store/uiStore';
+import { PromotionProvider, usePromotion } from '../lib/promotions';
 
 export function SiteLayout() {
+  return (
+    <PromotionProvider>
+      <SiteLayoutContent />
+    </PromotionProvider>
+  );
+}
+
+function SiteLayoutContent() {
   const openCartOnLoad = useUIStore((state) => state.openCartOnLoad);
   const setOpenCartOnLoad = useUIStore((state) => state.setOpenCartOnLoad);
   const setCartDrawerOpen = useUIStore((state) => state.setCartDrawerOpen);
   const [isNavDrawerOpen, setNavDrawerOpen] = useState(false);
   const navDrawerRef = useRef<HTMLDivElement | null>(null);
   const location = useLocation();
+  const { promotion } = usePromotion();
+  const bannerText =
+    promotion && promotion.bannerEnabled && promotion.bannerText.trim()
+      ? promotion.bannerText.trim()
+      : '';
 
   const navLinks = useMemo(
     () => [
@@ -79,6 +93,14 @@ export function SiteLayout() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
+      {bannerText && (
+        <div
+          className="w-full text-center text-sm font-medium py-2 px-3"
+          style={{ backgroundColor: '#85cdfa' }}
+        >
+          {bannerText}
+        </div>
+      )}
       <header className="bg-white/85 supports-[backdrop-filter]:bg-white/85 supports-[backdrop-filter]:backdrop-blur-md border-b border-black/10 sticky top-0 z-30">
         <nav className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-[48px_1fr_48px] items-center h-20 md:h-24">
