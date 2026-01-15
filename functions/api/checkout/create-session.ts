@@ -285,7 +285,6 @@ export const onRequestPost = async (context: {
             currency: 'usd',
             unit_amount: Math.max(0, Math.round(discountedCents)),
             product: product.stripe_product_id,
-            metadata: { sb_promo_id: promotion.id },
           },
           quantity,
         });

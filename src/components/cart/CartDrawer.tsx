@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { X, Minus, Plus, Trash2 } from 'lucide-react';
 import { useCartStore } from '../../store/cartStore';
 import { useUIStore } from '../../store/uiStore';
@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { fetchCategories } from '../../lib/api';
 import { calculateShippingCentsForCart } from '../../lib/shipping';
 import type { Category } from '../../lib/types';
+import { getDiscountedCents, isPromotionEligible, usePromotion } from '../../lib/promotions';
 
 export function CartDrawer() {
   const isOpen = useUIStore((state) => state.isCartDrawerOpen);
@@ -16,6 +17,7 @@ export function CartDrawer() {
   const updateQuantity = useCartStore((state) => state.updateQuantity);
   const getSubtotal = useCartStore((state) => state.getSubtotal());
   const navigate = useNavigate();
+  const { promotion } = usePromotion();
   useEffect(() => {
     if (!isOpen) return;
     let isMounted = true;
@@ -31,10 +33,25 @@ export function CartDrawer() {
     };
   }, [isOpen]);
 
+  const discountedSubtotal = useMemo(() => {
+    if (!promotion) return getSubtotal;
+    return items.reduce((sum, item) => {
+      const eligible = isPromotionEligible(promotion, {
+        category: item.category ?? null,
+        type: null,
+        categories: item.categories ?? null,
+      });
+      const unitPrice = eligible
+        ? getDiscountedCents(item.priceCents, promotion.percentOff)
+        : item.priceCents;
+      return sum + unitPrice * item.quantity;
+    }, 0);
+  }, [getSubtotal, items, promotion]);
+
   if (!isOpen) return null;
 
   const shippingCents = calculateShippingCentsForCart(items, categories);
-  const totalCents = getSubtotal + shippingCents;
+  const totalCents = discountedSubtotal + shippingCents;
 
   const handleCheckout = () => {
     if (!items.length) return;
@@ -78,9 +95,30 @@ export function CartDrawer() {
                   )}
                   <div className="flex-1">
                     <h3 className="font-medium text-gray-900">{item.name}</h3>
-                    <p className="text-sm text-gray-600 font-serif">
-                      ${(item.priceCents / 100).toFixed(2)}
-                    </p>
+                    {promotion &&
+                    isPromotionEligible(promotion, {
+                      category: item.category ?? null,
+                      type: null,
+                      categories: item.categories ?? null,
+                    }) ? (
+                      <div className="text-sm text-gray-600 font-serif">
+                        <span className="inline-flex items-center rounded-full bg-red-100 text-red-700 text-[10px] uppercase tracking-widest px-2 py-0.5 mb-1">
+                          Sale
+                        </span>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-gray-400 line-through">
+                            ${(item.priceCents / 100).toFixed(2)}
+                          </span>
+                          <span className="text-red-600">
+                            ${(getDiscountedCents(item.priceCents, promotion.percentOff) / 100).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-600 font-serif">
+                        ${(item.priceCents / 100).toFixed(2)}
+                      </p>
+                    )}
                     {item.oneoff && (
                       <span className="inline-block mt-1 px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
                         One-of-a-kind
@@ -126,7 +164,7 @@ export function CartDrawer() {
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-600">Subtotal</span>
-                <span className="font-serif font-semibold text-gray-900">${(getSubtotal / 100).toFixed(2)}</span>
+                <span className="font-serif font-semibold text-gray-900">${(discountedSubtotal / 100).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Shipping</span>
