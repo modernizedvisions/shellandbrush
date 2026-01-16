@@ -22,6 +22,7 @@ import { sendContactEmail } from './contact';
 import { verifyAdminPassword } from './auth';
 import { adminFetch, getStoredAdminPassword } from './adminAuth';
 import type { Category } from './types';
+import { createWebpVariant } from './imageVariants';
 
 // Aggregates the mock data layer and stubs so the UI can continue working while we
 // prepare for Cloudflare D1 + Stripe with the site/admin as the source of truth.
@@ -76,6 +77,7 @@ export async function fetchGalleryImages() {
   return data.images.map((img: any, idx: number) => ({
     id: img.id || `gallery-${idx}`,
     imageUrl: img.imageUrl || img.image_url || '',
+    imageThumbUrl: img.imageThumbUrl || img.image_thumb_url || null,
     imageId: img.imageId || img.image_id || undefined,
     hidden: !!(img.hidden ?? img.is_active === 0),
     alt: img.alt || img.alt_text,
@@ -197,14 +199,6 @@ export async function adminUploadImage(
   id: string;
   url: string;
 }> {
-  const form = new FormData();
-  form.append('file', file, file.name || 'upload');
-  if (options.entityType) form.append('entityType', options.entityType);
-  if (options.entityId) form.append('entityId', options.entityId);
-  if (options.kind) form.append('kind', options.kind);
-  if (options.isPrimary !== undefined) form.append('isPrimary', options.isPrimary ? '1' : '0');
-  if (options.sortOrder !== undefined) form.append('sortOrder', String(options.sortOrder));
-
   const rid = crypto.randomUUID();
   const query = new URLSearchParams({ rid });
   if (options.scope) query.set('scope', options.scope);
@@ -212,66 +206,118 @@ export async function adminUploadImage(
   const method = 'POST';
   const pw = getStoredAdminPassword();
 
-  console.debug('[admin image upload] request', {
-    rid,
-    scope: options.scope || 'products',
-    url,
-    method,
-    bodyIsFormData: form instanceof FormData,
-    fileCount: 1,
-    fileSizes: [file.size],
-    fileName: file.name,
-    fileType: file.type,
-    pwLength: pw.length,
-  });
+  const uploadSingle = async (
+    uploadFile: File,
+    extraFields: Record<string, string>,
+    includeMeta: boolean
+  ): Promise<{ id: string; url: string }> => {
+    const form = new FormData();
+    form.append('file', uploadFile, uploadFile.name || 'upload');
+    if (includeMeta) {
+      if (options.entityType) form.append('entityType', options.entityType);
+      if (options.entityId) form.append('entityId', options.entityId);
+      if (options.kind) form.append('kind', options.kind);
+      if (options.isPrimary !== undefined) form.append('isPrimary', options.isPrimary ? '1' : '0');
+      if (options.sortOrder !== undefined) form.append('sortOrder', String(options.sortOrder));
+    } else {
+      if (options.entityType) form.append('entityType', options.entityType);
+      if (options.entityId) form.append('entityId', options.entityId);
+      if (options.kind) form.append('kind', options.kind);
+    }
+    Object.entries(extraFields).forEach(([key, value]) => form.append(key, value));
 
-  const response = await adminFetch(url, {
-    method,
-    headers: { 'X-Upload-Request-Id': rid },
-    body: form,
-  });
-
-  const responseText = await response.text();
-  console.debug('[admin image upload] response', {
-    rid,
-    status: response.status,
-    body: responseText,
-  });
-
-  if (!response.ok) {
-    const trimmed = responseText.length > 1000 ? `${responseText.slice(0, 1000)}...` : responseText;
-    console.error('[admin image upload] non-2xx', {
-      status: response.status,
+    console.debug('[admin image upload] request', {
+      rid,
+      scope: options.scope || 'products',
       url,
-      text: trimmed,
+      method,
+      bodyIsFormData: form instanceof FormData,
+      fileCount: 1,
+      fileSizes: [uploadFile.size],
+      fileName: uploadFile.name,
+      fileType: uploadFile.type,
+      pwLength: pw.length,
+      variant: extraFields.variant || null,
+      sourceImageId: extraFields.sourceImageId || null,
     });
-    throw new Error(`Upload failed (${response.status}). See console for details. Server: ${trimmed}`);
-  }
 
-  let data: any = null;
-  try {
-    data = responseText ? JSON.parse(responseText) : null;
-  } catch (err) {
-    console.error('[admin image upload] invalid json', { status: response.status, url, text: responseText });
-    throw new Error(`Upload failed (${response.status}). See console for details. Server: invalid-json`);
-  }
-  const normalizedId =
-    (typeof data?.image?.id === 'string' && data.image.id) ||
-    (typeof data?.id === 'string' && data.id) ||
-    (typeof data?.image?.storageKey === 'string' && data.image.storageKey) ||
-    '';
-  const normalizedUrl =
-    (typeof data?.image?.publicUrl === 'string' && data.image.publicUrl) ||
-    (typeof data?.url === 'string' && data.url) ||
-    '';
+    const response = await adminFetch(url, {
+      method,
+      headers: { 'X-Upload-Request-Id': rid },
+      body: form,
+    });
 
-  if (!normalizedId || !normalizedUrl) {
-    throw new Error(`Image upload failed rid=${rid} status=${response.status} body=missing-fields`);
-  }
-  return {
-    id: normalizedId,
-    url: normalizedUrl,
+    const responseText = await response.text();
+    console.debug('[admin image upload] response', {
+      rid,
+      status: response.status,
+      body: responseText,
+    });
+
+    if (!response.ok) {
+      const trimmed = responseText.length > 1000 ? `${responseText.slice(0, 1000)}...` : responseText;
+      console.error('[admin image upload] non-2xx', {
+        status: response.status,
+        url,
+        text: trimmed,
+      });
+      throw new Error(`Upload failed (${response.status}). See console for details. Server: ${trimmed}`);
+    }
+
+    let data: any = null;
+    try {
+      data = responseText ? JSON.parse(responseText) : null;
+    } catch (err) {
+      console.error('[admin image upload] invalid json', { status: response.status, url, text: responseText });
+      throw new Error(`Upload failed (${response.status}). See console for details. Server: invalid-json`);
+    }
+    const normalizedId =
+      (typeof data?.image?.id === 'string' && data.image.id) ||
+      (typeof data?.id === 'string' && data.id) ||
+      (typeof data?.image?.storageKey === 'string' && data.image.storageKey) ||
+      '';
+    const normalizedUrl =
+      (typeof data?.image?.publicUrl === 'string' && data.image.publicUrl) ||
+      (typeof data?.url === 'string' && data.url) ||
+      '';
+
+    if (!normalizedId || !normalizedUrl) {
+      throw new Error(`Image upload failed rid=${rid} status=${response.status} body=missing-fields`);
+    }
+    return {
+      id: normalizedId,
+      url: normalizedUrl,
+    };
   };
+
+  const original = await uploadSingle(file, { variant: 'original' }, true);
+
+  const uploadVariant = async (variantFile: File, variant: 'thumb' | 'medium') => {
+    try {
+      await uploadSingle(variantFile, { variant, sourceImageId: original.id }, false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[admin image upload] ${variant} variant upload failed`, message);
+    }
+  };
+
+  try {
+    const thumb = await createWebpVariant(file, 512, 0.72);
+    void uploadVariant(thumb, 'thumb');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn('[admin image upload] thumb variant generation failed', message);
+  }
+
+  try {
+    const medium = await createWebpVariant(file, 1280, 0.78);
+    void uploadVariant(medium, 'medium');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn('[admin image upload] medium variant generation failed', message);
+  }
+
+  return original;
 }
 
 export async function adminDeleteImage(id: string): Promise<void> {

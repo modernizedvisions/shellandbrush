@@ -21,6 +21,7 @@ const BUILD_FINGERPRINT = 'upload-fingerprint-2025-12-21-a';
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const ALLOWED_SCOPES = new Set(['products', 'gallery', 'home', 'categories', 'custom-orders']);
+const ALLOWED_VARIANTS = new Set(['original', 'thumb', 'medium']);
 
 const corsHeaders = () => ({
   'Access-Control-Allow-Origin': '*',
@@ -289,12 +290,23 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
     const entityType = (form.get('entityType') || new URL(request.url).searchParams.get('entityType')) as string | null;
     const entityId = (form.get('entityId') || new URL(request.url).searchParams.get('entityId')) as string | null;
     const kind = (form.get('kind') || new URL(request.url).searchParams.get('kind')) as string | null;
+    const variantRaw = (form.get('variant') || new URL(request.url).searchParams.get('variant')) as string | null;
+    const sourceImageIdRaw = (form.get('sourceImageId') || new URL(request.url).searchParams.get('sourceImageId')) as string | null;
     const isPrimaryRaw = (form.get('isPrimary') || new URL(request.url).searchParams.get('isPrimary')) as
       | string
       | null;
     const sortOrderRaw = (form.get('sortOrder') || new URL(request.url).searchParams.get('sortOrder')) as
       | string
       | null;
+    const variant = variantRaw ? variantRaw.trim().toLowerCase() : null;
+    if (variant && !ALLOWED_VARIANTS.has(variant)) {
+      return respondError({
+        code: 'UPLOAD_FAILED',
+        message: `Invalid variant. Must be one of: ${Array.from(ALLOWED_VARIANTS).join(', ')}`,
+        status: 400,
+      });
+    }
+    const sourceImageId = sourceImageIdRaw ? sourceImageIdRaw.trim() : null;
     const isPrimary = isPrimaryRaw ? (isPrimaryRaw === '1' || isPrimaryRaw.toLowerCase() === 'true' ? 1 : 0) : 0;
     const sortOrder = Number.isFinite(Number(sortOrderRaw)) ? Number(sortOrderRaw) : 0;
     let dbImageId: string | null = null;
@@ -305,8 +317,8 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
         await env.DB.prepare(
           `INSERT INTO images (
             id, storage_provider, storage_key, public_url, content_type, size_bytes, original_filename,
-            entity_type, entity_id, kind, is_primary, sort_order, upload_request_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+            entity_type, entity_id, kind, is_primary, sort_order, upload_request_id, variant, source_image_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
         )
           .bind(
             dbImageId,
@@ -321,7 +333,9 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
             kind || null,
             isPrimary,
             sortOrder,
-            uploadRequestId
+            uploadRequestId,
+            variant || null,
+            sourceImageId || null
           )
           .run();
       } catch (err) {
@@ -340,6 +354,8 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
         id: dbImageId || storageKey,
         storageKey,
         publicUrl,
+        variant: variant || null,
+        sourceImageId: sourceImageId || null,
       },
     });
     if (insertFailed) {

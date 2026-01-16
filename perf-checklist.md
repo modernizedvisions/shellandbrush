@@ -29,6 +29,8 @@
 - Scroll through `/shop` and `/gallery` to verify images load in view only.
 - Open `/product/:id` and switch gallery thumbnails; ensure no layout shift.
 - Load `/checkout` to verify Stripe checkout iframe renders.
+- Confirm promo banner appears only when enabled and does not shift layout.
+- Verify promo pricing shows on product cards, cart drawer, and checkout summary.
 
 ## Image-specific checks
 - Confirm hero image loads with expected priority.
@@ -43,6 +45,8 @@
 
 ## Regression checks
 - Admin `/admin` still loads all tabs correctly.
+- Promotions tab can create, enable, disable, and delete a promotion.
+- Only one promotion is active at a time after enabling a new one.
 - Checkout flow still completes and return page loads.
 - Images remain correctly cropped (object-fit preserved).
 

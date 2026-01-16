@@ -46,6 +46,10 @@ These are likely contributors to the main bundle based on import surface and typ
 5) `sonner`
 - Evidence: `src/main.tsx` (Toaster) and admin components.
 
+## Promotions feature footprint (new)
+- Promotion context is mounted at the layout level, so the polling logic and eligibility helpers ship to every route. Evidence: `src/layout/SiteLayout.tsx`, `src/lib/promotions.tsx`.
+- Promotions admin UI ships in the main bundle because routes are eagerly imported. Evidence: `src/pages/AdminPage.tsx`, `src/components/admin/AdminPromotionsTab.tsx`.
+
 ## Code splitting status
 - No dynamic imports detected in the route tree.
 - All routes and most admin features ship in the single bundle.

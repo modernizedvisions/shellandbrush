@@ -6,6 +6,8 @@
   description: string;
   imageUrls: string[];
   imageUrl: string;
+  imageThumbUrls?: Array<string | null>;
+  imageMediumUrls?: Array<string | null>;
   primaryImageId?: string;
   imageIds?: string[];
   thumbnailUrl?: string;
@@ -68,6 +70,7 @@ export interface Order {
 export interface GalleryImage {
   id: string;
   imageUrl: string;
+  imageThumbUrl?: string | null;
   imageId?: string;
   hidden: boolean;
   alt?: string;

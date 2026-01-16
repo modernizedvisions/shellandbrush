@@ -60,6 +60,34 @@ const fetchImageUrlMap = async (
   );
 };
 
+const fetchImageVariantMap = async (
+  db: D1Database,
+  sourceIds: string[],
+  baseUrl: string
+): Promise<Map<string, { thumb?: string }>> => {
+  const unique = Array.from(new Set(sourceIds.filter(Boolean)));
+  if (!unique.length) return new Map();
+  const placeholders = unique.map(() => '?').join(', ');
+  const { results } = await db
+    .prepare(
+      `SELECT source_image_id, variant, public_url, storage_key
+       FROM images
+       WHERE source_image_id IN (${placeholders})
+         AND variant = 'thumb';`
+    )
+    .bind(...unique)
+    .all<{ source_image_id: string | null; variant: string | null; public_url: string | null; storage_key: string | null }>();
+  const map = new Map<string, { thumb?: string }>();
+  (results || []).forEach((row) => {
+    if (!row.source_image_id) return;
+    const entry = map.get(row.source_image_id) || {};
+    const resolved = resolvePublicImageUrl(row.public_url, row.storage_key, baseUrl);
+    entry.thumb = resolved;
+    map.set(row.source_image_id, entry);
+  });
+  return map;
+};
+
 export async function onRequestGet(context: {
   env: { DB?: D1Database; PUBLIC_IMAGES_BASE_URL?: string };
   request: Request;
@@ -84,9 +112,10 @@ export async function onRequestGet(context: {
     const imageIds = rows.map((row) => row.image_id || '').filter(Boolean);
     const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
     const imageUrlMap = await fetchImageUrlMap(db, imageIds, baseUrl);
+    const variantMap = await fetchImageVariantMap(db, imageIds, baseUrl);
     const normalize = (value: string | null | undefined) =>
       normalizePublicImageUrl(value, context.env, context.request);
-    const images = rows.map((row) => mapRowToImage(row, schemaInfo, imageUrlMap, normalize)).filter(Boolean);
+    const images = rows.map((row) => mapRowToImage(row, schemaInfo, imageUrlMap, variantMap, normalize)).filter(Boolean);
     console.log('[api/gallery][get] fetched', { count: images.length });
 
     return new Response(JSON.stringify({ images }), {
@@ -252,8 +281,9 @@ export async function onRequestPut(context: {
     const refreshedRows = refreshed.results || [];
     const refreshedIds = refreshedRows.map((row) => row.image_id || '').filter(Boolean);
     const refreshedUrlMap = await fetchImageUrlMap(db, refreshedIds, baseUrl);
+    const refreshedVariantMap = await fetchImageVariantMap(db, refreshedIds, baseUrl);
     const savedImages = refreshedRows
-      .map((row) => mapRowToImage(row, schemaInfo, refreshedUrlMap, normalize))
+      .map((row) => mapRowToImage(row, schemaInfo, refreshedUrlMap, refreshedVariantMap, normalize))
       .filter(Boolean);
     const countRow = await db.prepare(`SELECT COUNT(*) as c FROM gallery_images;`).first<{ c: number }>();
     console.log('[api/gallery] saved', {
@@ -280,6 +310,7 @@ function mapRowToImage(
   row: GalleryRow | null | undefined,
   _schema: SchemaInfo,
   imageUrlMap: Map<string, string>,
+  variantMap: Map<string, { thumb?: string }>,
   normalizeUrl?: (value: string | null | undefined) => string
 ) {
   if (!row?.id) return null;
@@ -288,9 +319,14 @@ function mapRowToImage(
   const hidden = row.hidden !== undefined && row.hidden !== null ? row.hidden === 1 : row.is_active === 0;
   const position = Number.isFinite(row.sort_order) ? (row.sort_order as number) : row.position ?? 0;
   const normalized = normalizeUrl ? normalizeUrl(url) : url;
+  const thumbUrl =
+    row.image_id && variantMap.has(row.image_id)
+      ? variantMap.get(row.image_id)?.thumb || null
+      : null;
   return {
     id: row.id,
     imageUrl: normalized,
+    imageThumbUrl: thumbUrl,
     imageId: row.image_id || undefined,
     alt: row.alt_text || undefined,
     title: row.alt_text || undefined,

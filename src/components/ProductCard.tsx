@@ -26,7 +26,8 @@ export function ProductCard({ product, showEditOverlay = false, children }: Prod
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  const imageSrc = product.imageUrl || product.imageUrls?.[0] || '';
+  const thumbSrc = product.imageThumbUrls?.[0] ?? null;
+  const imageSrc = (thumbSrc ?? product.imageUrl) || product.imageUrls?.[0] || '';
   const showFallback = !imageSrc || imageError;
 
   const qtyInCart = items.find((item) => item.productId === product.id)?.quantity ?? 0;
@@ -65,7 +66,7 @@ export function ProductCard({ product, showEditOverlay = false, children }: Prod
       name: product.name,
       priceCents: product.priceCents ?? 0,
       quantity: 1,
-      imageUrl: product.thumbnailUrl || product.imageUrl,
+      imageUrl: (thumbSrc ?? product.thumbnailUrl) || product.imageUrl,
       category: product.category ?? product.type,
       categories: product.categories ?? (product.category || product.type ? [product.category ?? product.type] : null),
       oneoff: product.oneoff,

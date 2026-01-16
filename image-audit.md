@@ -166,6 +166,10 @@ Snippet:
 - object-fit: cover
 - loading/decoding: none
 
+### Promotions UI (non-image)
+- Site-wide banner is text-only (no additional image requests). Evidence: `src/layout/SiteLayout.tsx`.
+- Sale badges in product cards/cart/checkout are styled spans (no image assets). Evidence: `src/components/ProductCard.tsx`, `src/components/cart/CartDrawer.tsx`, `src/pages/CheckoutPage.tsx`.
+
 ## Current gaps observed
 - Many non-hero images lack `loading="lazy"` and `decoding="async"` (Gallery, Product Detail, Cart, Hero).
 - No `srcset` or `sizes` on any image surfaces.

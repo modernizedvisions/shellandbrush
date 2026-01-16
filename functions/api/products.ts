@@ -66,15 +66,26 @@ export async function onRequestGet(context: {
 
     const { results } = await statement.all<ProductRow>();
     const rows = results || [];
+    const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
+    const normalize = (value: string | null | undefined) =>
+      normalizePublicImageUrl(value, context.env, context.request);
+    const legacyUrls = rows
+      .flatMap((row) => {
+        const extras = row.image_urls_json ? safeParseJsonArray(row.image_urls_json) : [];
+        return [row.image_url || '', ...extras];
+      })
+      .map((value) => normalize(value))
+      .filter((value) => !!value);
+    const urlIdMap = await fetchImageIdMapByUrl(context.env.DB, legacyUrls);
+
     const imageIds = rows.flatMap((row) => {
       const extra = row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : [];
       const primary = row.primary_image_id ? [row.primary_image_id] : [];
       return [...primary, ...extra];
     });
-    const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
+    const allImageIds = [...imageIds, ...Array.from(urlIdMap.values())];
     const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds, baseUrl);
-    const normalize = (value: string | null | undefined) =>
-      normalizePublicImageUrl(value, context.env, context.request);
+    const variantMap = await fetchImageVariantMap(context.env.DB, allImageIds, baseUrl);
 
     const products: Product[] = rows.map((row) => {
       const imageIdsRow = row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : [];
@@ -115,6 +126,22 @@ export async function onRequestGet(context: {
         ? [normalizedPrimary, ...normalizedUrls.filter((url) => url !== normalizedPrimary)]
         : normalizedUrls;
 
+      const primaryId = row.primary_image_id || imageIdsRow[0] || '';
+      const orderedIds = primaryId
+        ? [primaryId, ...imageIdsRow.filter((id) => id !== primaryId)]
+        : imageIdsRow;
+      const idByUrl = new Map<string, string>();
+      orderedIds.forEach((id) => {
+        const mappedUrl = imageUrlMap.get(id);
+        const normalizedUrl = mappedUrl ? normalize(mappedUrl) : '';
+        if (normalizedUrl) idByUrl.set(normalizedUrl, id);
+      });
+      const imageIdsByUrl = finalUrls.map((urlValue) => idByUrl.get(urlValue) || urlIdMap.get(urlValue) || null);
+      const thumbUrls = imageIdsByUrl.map((id) => (id ? variantMap.get(id)?.thumb || null : null));
+      const mediumUrls = imageIdsByUrl.map((id) => (id ? variantMap.get(id)?.medium || null : null));
+      const hasThumb = thumbUrls.some((value) => !!value);
+      const hasMedium = mediumUrls.some((value) => !!value);
+
       return {
         id: row.id,
         stripeProductId: row.stripe_product_id || row.id, // placeholder until Stripe linkage is added
@@ -123,6 +150,8 @@ export async function onRequestGet(context: {
         description: row.description ?? '',
         imageUrls: finalUrls,
         imageUrl: normalizedPrimary,
+        imageThumbUrls: hasThumb ? thumbUrls : undefined,
+        imageMediumUrls: hasMedium ? mediumUrls : undefined,
         primaryImageId: row.primary_image_id || (imageIdsRow[0] || undefined),
         imageIds: imageIdsRow.length ? imageIdsRow : undefined,
         thumbnailUrl: normalizedPrimary || undefined,
@@ -216,6 +245,50 @@ const fetchImageUrlMap = async (
       resolvePublicImageUrl(row.public_url, row.storage_key, baseUrl),
     ])
   );
+};
+
+const fetchImageIdMapByUrl = async (db: D1Database, urls: string[]): Promise<Map<string, string>> => {
+  const unique = Array.from(new Set(urls.filter(Boolean)));
+  if (!unique.length) return new Map();
+  const placeholders = unique.map(() => '?').join(', ');
+  const { results } = await db
+    .prepare(`SELECT id, public_url FROM images WHERE public_url IN (${placeholders});`)
+    .bind(...unique)
+    .all<{ id: string; public_url: string | null }>();
+  return new Map(
+    (results || [])
+      .filter((row) => row.public_url)
+      .map((row) => [row.public_url as string, row.id])
+  );
+};
+
+const fetchImageVariantMap = async (
+  db: D1Database,
+  sourceIds: string[],
+  baseUrl: string
+): Promise<Map<string, { thumb?: string; medium?: string }>> => {
+  const unique = Array.from(new Set(sourceIds.filter(Boolean)));
+  if (!unique.length) return new Map();
+  const placeholders = unique.map(() => '?').join(', ');
+  const { results } = await db
+    .prepare(
+      `SELECT source_image_id, variant, public_url, storage_key
+       FROM images
+       WHERE source_image_id IN (${placeholders})
+         AND variant IN ('thumb','medium');`
+    )
+    .bind(...unique)
+    .all<{ source_image_id: string | null; variant: string | null; public_url: string | null; storage_key: string | null }>();
+  const map = new Map<string, { thumb?: string; medium?: string }>();
+  (results || []).forEach((row) => {
+    if (!row.source_image_id || !row.variant) return;
+    const entry = map.get(row.source_image_id) || {};
+    const resolved = resolvePublicImageUrl(row.public_url, row.storage_key, baseUrl);
+    if (row.variant === 'thumb') entry.thumb = resolved;
+    if (row.variant === 'medium') entry.medium = resolved;
+    map.set(row.source_image_id, entry);
+  });
+  return map;
 };
 
 async function ensureProductSchema(db: D1Database) {

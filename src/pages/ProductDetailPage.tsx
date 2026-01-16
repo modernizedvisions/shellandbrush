@@ -48,6 +48,14 @@ export function ProductDetailPage() {
     if (product.imageUrls && product.imageUrls.length > 0) return product.imageUrls;
     return product.imageUrl ? [product.imageUrl] : [];
   }, [product]);
+  const imageThumbs = useMemo(() => {
+    if (!product?.imageThumbUrls || !product.imageThumbUrls.length) return [];
+    return product.imageThumbUrls;
+  }, [product]);
+  const imageMediums = useMemo(() => {
+    if (!product?.imageMediumUrls || !product.imageMediumUrls.length) return [];
+    return product.imageMediumUrls;
+  }, [product]);
 
   useEffect(() => {
     setCurrentIndex(0);
@@ -87,7 +95,7 @@ export function ProductDetailPage() {
       name: product.name,
       priceCents: product.priceCents ?? 0,
       quantity: 1,
-      imageUrl: product.thumbnailUrl || product.imageUrl,
+      imageUrl: (product.imageThumbUrls?.[0] ?? product.thumbnailUrl) || product.imageUrl,
       category: product.category ?? product.type,
       categories: product.categories ?? (product.category || product.type ? [product.category ?? product.type] : null),
       oneoff: product.oneoff,
@@ -129,7 +137,13 @@ export function ProductDetailPage() {
                   <div className="w-full h-full animate-pulse bg-gray-200" />
                 ) : images.length ? (
                   <>
-                    <img src={images[currentIndex]} alt={product?.name || 'Product'} className="w-full h-full object-cover" />
+                    <img
+                      src={imageMediums[currentIndex] ?? images[currentIndex]}
+                      alt={product?.name || 'Product'}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
                     {images.length > 1 && (
                       <>
                         <button
@@ -159,7 +173,13 @@ export function ProductDetailPage() {
                     onClick={() => setCurrentIndex(idx)}
                     className={`w-20 h-20 rounded-md overflow-hidden border ${idx === currentIndex ? 'border-gray-900' : 'border-gray-200'}`}
                   >
-                    <img src={url} alt={`${product?.name}-thumb-${idx}`} className="w-full h-full object-cover" />
+                    <img
+                      src={imageThumbs[idx] ?? url}
+                      alt={`${product?.name}-thumb-${idx}`}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
                   </button>
                 ))}
               </div>
@@ -223,6 +243,7 @@ export function ProductDetailPage() {
             </div>
             <div ref={relatedRef} className="flex gap-4 overflow-x-auto pb-2">
               {related.map((item) => {
+                const relatedThumb = item.imageThumbUrls?.[0] ?? null;
                 const relatedEligible =
                   item.priceCents !== undefined &&
                   item.priceCents !== null &&
@@ -238,7 +259,13 @@ export function ProductDetailPage() {
                 return (
                   <div key={item.id} className="w-64 flex-shrink-0 bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
                   <div className="aspect-square bg-gray-100 overflow-hidden">
-                    <img src={item.imageUrl || item.imageUrls?.[0]} alt={item.name} className="w-full h-full object-cover" />
+                    <img
+                      src={(relatedThumb ?? item.imageUrl) || item.imageUrls?.[0]}
+                      alt={item.name}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
                   </div>
                   <div className="p-4 space-y-2">
                     <h3 className="text-lg font-semibold text-gray-900">{item.name}</h3>
@@ -275,7 +302,7 @@ export function ProductDetailPage() {
                             name: item.name,
                             priceCents: item.priceCents,
                             quantity: 1,
-                            imageUrl: item.thumbnailUrl || item.imageUrl,
+                            imageUrl: (relatedThumb ?? item.thumbnailUrl) || item.imageUrl,
                             category: item.category ?? item.type,
                             categories: item.categories ?? (item.category || item.type ? [item.category ?? item.type] : null),
                             oneoff: item.oneoff,

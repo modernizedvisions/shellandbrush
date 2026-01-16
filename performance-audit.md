@@ -33,12 +33,24 @@ Routes:
 - Icon library `lucide-react` used across many components. Evidence: `rg -n "lucide-react" src`.
 - Form library `react-hook-form` used in admin custom orders. Evidence: `src/components/admin/AdminCustomOrdersTab.tsx`.
 
+### Promotions system (pricing + banner)
+- Global promotion context loads on every route via `PromotionProvider` and polls every 60s. Evidence: `src/layout/SiteLayout.tsx` + `src/lib/promotions.tsx`.
+- Public API: `GET /api/promotions/active` cached 60s. Evidence: `functions/api/promotions/active.ts`.
+- Admin CRUD: `GET/POST/PUT/DELETE /api/admin/promotions` with input validation and single-active enforcement. Evidence: `functions/api/admin/promotions.ts`.
+- Admin tab UI: create/edit/delete promotions, optional schedule window, category scope, and banner copy. Evidence: `src/components/admin/AdminPromotionsTab.tsx`.
+
 ### Image pipeline inventory
 - Product and gallery images are stored in D1 `images` table and referenced by ID or URL. Evidence: `db/migrations/006_images_pipeline.sql`.
 - Public image URLs are normalized and served under `/images/<key>` with a configurable base. Evidence: `functions/_lib/imageUrls.ts` and `functions/_lib/imageBaseUrl.ts`.
 - `/images/*` requests are served by a Pages Functions middleware with long cache headers. Evidence: `functions/images/_middleware.ts`.
 
 ## Part D - Network and runtime audit (current load map)
+
+### All routes (SiteLayout)
+- API calls on mount and interval:
+  - `GET /api/promotions/active` (initial load + every 60s). Evidence: `src/lib/promotions.tsx`.
+- UI:
+  - Banner renders when promotion has `bannerEnabled` + `bannerText`. Evidence: `src/layout/SiteLayout.tsx`.
 
 ### Home (`/`)
 - API calls on mount:
@@ -83,6 +95,8 @@ Routes:
 ### Admin (`/admin`)
 - API calls on load and tab switches:
   - Orders, products, gallery images, hero config, sold products, custom orders. Evidence: `src/pages/AdminPage.tsx`.
+- Promotions tab calls:
+  - `GET /api/admin/promotions` and `GET /api/admin/categories` when loading promotions UI. Evidence: `src/components/admin/AdminPromotionsTab.tsx`.
 
 ## Part D - Prioritized laggards (top 10)
 
@@ -156,6 +170,13 @@ Routes:
 - Risk: Low.
 - Measure: CLS improvement.
 
+11) Promotion polling on every route
+- Evidence: `PromotionProvider` refreshes every 60s in `src/lib/promotions.tsx`.
+- Impact: periodic background request on all pages (minor, but always-on).
+- Fix idea: keep current 60s cache or increase interval; consider page visibility pause.
+- Risk: Low.
+- Measure: background network activity and long-task count.
+
 ## Part E - Gameplan (phased)
 
 Phase 1 (lowest risk)
@@ -176,4 +197,5 @@ Phase 3 (higher)
 - Real-world image byte sizes per surface (need network capture).
 - LCP and CLS baselines per route (need Lighthouse or Web Vitals).
 - Whether `PUBLIC_IMAGES_BASE_URL` is set in production and its CDN characteristics.
+- Promotions API cache hit ratio and error rate in production.
 

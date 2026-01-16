@@ -41,7 +41,7 @@ export function GalleryPage() {
   const soldEntries = [
     ...soldProducts.map((item) => ({
       id: `product-${item.id}`,
-      imageUrl: item.imageUrl,
+      imageUrl: item.imageThumbUrls?.[0] ?? item.imageUrl,
       title: item.name,
       subtitle: item.collection || null,
       badge: 'SOLD',
@@ -92,9 +92,11 @@ export function GalleryPage() {
                         onClick={() => setSelectedImage(item.imageUrl)}
                       >
                         <img
-                          src={item.imageUrl}
+                          src={item.imageThumbUrl ?? item.imageUrl}
                           alt={item.title || 'Gallery item'}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          loading="lazy"
+                          decoding="async"
                         />
                       </div>
                     </div>
@@ -120,6 +122,8 @@ export function GalleryPage() {
                             src={item.imageUrl}
                             alt={item.title}
                             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            loading="lazy"
+                            decoding="async"
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-gray-400">

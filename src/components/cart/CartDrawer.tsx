@@ -91,6 +91,8 @@ export function CartDrawer() {
                       src={item.imageUrl}
                       alt={item.name}
                       className="w-20 h-20 object-cover rounded"
+                      loading="lazy"
+                      decoding="async"
                     />
                   )}
                   <div className="flex-1">

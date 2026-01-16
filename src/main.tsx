@@ -1,18 +1,32 @@
-import { StrictMode } from 'react';
+import React, { StrictMode, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { SiteLayout } from './layout/SiteLayout';
 import { HomePage } from './pages/HomePage';
 import { ShopPage } from './pages/ShopPage';
-import { GalleryPage } from './pages/GalleryPage';
-import { AboutPage } from './pages/AboutPage';
-import { CheckoutPage } from './pages/CheckoutPage';
-import { CheckoutReturnPage } from './pages/CheckoutReturnPage';
-import { AdminPage } from './pages/AdminPage';
-import { ProductDetailPage } from './pages/ProductDetailPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { RouteFallback } from './components/RouteFallback';
 import { Toaster } from 'sonner';
 import './index.css';
+
+const ProductDetailPage = lazy(() =>
+  import('./pages/ProductDetailPage').then((m) => ({ default: m.ProductDetailPage }))
+);
+const GalleryPage = lazy(() =>
+  import('./pages/GalleryPage').then((m) => ({ default: m.GalleryPage }))
+);
+const AboutPage = lazy(() =>
+  import('./pages/AboutPage').then((m) => ({ default: m.AboutPage }))
+);
+const CheckoutPage = lazy(() =>
+  import('./pages/CheckoutPage').then((m) => ({ default: m.CheckoutPage }))
+);
+const CheckoutReturnPage = lazy(() =>
+  import('./pages/CheckoutReturnPage').then((m) => ({ default: m.CheckoutReturnPage }))
+);
+const AdminPage = lazy(() =>
+  import('./pages/AdminPage').then((m) => ({ default: m.AdminPage }))
+);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -28,12 +42,54 @@ createRoot(document.getElementById('root')!).render(
               </ErrorBoundary>
             }
           />
-          <Route path="product/:productId" element={<ProductDetailPage />} />
-          <Route path="gallery" element={<GalleryPage />} />
-          <Route path="about" element={<AboutPage />} />
-          <Route path="checkout" element={<CheckoutPage />} />
-          <Route path="checkout/return" element={<CheckoutReturnPage />} />
-          <Route path="admin" element={<AdminPage />} />
+          <Route
+            path="product/:productId"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <ProductDetailPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="gallery"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <GalleryPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="about"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <AboutPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="checkout"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <CheckoutPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="checkout/return"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <CheckoutReturnPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="admin"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <AdminPage />
+              </Suspense>
+            }
+          />
         </Route>
       </Routes>
     </BrowserRouter>
