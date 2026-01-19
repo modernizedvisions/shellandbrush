@@ -7,6 +7,7 @@ import type { Category, Product } from '../lib/types';
 import { getDiscountedCents, isPromotionEligible, usePromotion } from '../lib/promotions';
 import { useCartStore } from '../store/cartStore';
 import { calculateShippingCentsForCart } from '../lib/shipping';
+import type { EmbeddedCheckoutSession } from '../lib/payments/checkout';
 
 const SESSION_MAX_AGE_MS = 10 * 60 * 1000;
 const sessionTimestampKey = (sessionId: string) => `checkout_session_created_at_${sessionId}`;
@@ -41,6 +42,11 @@ export function CheckoutPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMountingStripe, setIsMountingStripe] = useState(false);
+  const [promoCodeInput, setPromoCodeInput] = useState('');
+  const [promoSummary, setPromoSummary] = useState<EmbeddedCheckoutSession['promo']>(null);
+  const [promoFeedback, setPromoFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [promoApplying, setPromoApplying] = useState(false);
+  const [sessionItems, setSessionItems] = useState<{ productId: string; quantity: number }[]>([]);
   const publishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined;
   useEffect(() => {
     let isMounted = true;
@@ -109,6 +115,40 @@ export function CheckoutPage() {
     [clearSessionTimestamp, navigate, sessionId]
   );
 
+  const startSession = useCallback(async (items: { productId: string; quantity: number }[], promoCode?: string | null) => {
+    const session = await createEmbeddedCheckoutSession(items, promoCode || null);
+    setClientSecret(session.clientSecret);
+    setSessionId(session.sessionId);
+    setPromoSummary(session.promo ?? null);
+    recordSessionTimestamp(session.sessionId);
+    return session;
+  }, [recordSessionTimestamp]);
+
+  const formatPromoSummary = useCallback((summary: EmbeddedCheckoutSession['promo']) => {
+    if (!summary) return '';
+    const parts = [];
+    if (summary.percentOff > 0) {
+      parts.push(`${summary.percentOff}% off`);
+    }
+    if (summary.freeShippingApplied) {
+      parts.push('Free shipping');
+    }
+    const detail = parts.length ? parts.join(' + ') : 'No discount';
+    const codeLabel = summary.code ? summary.code.toUpperCase() : '';
+    if (summary.source === 'auto+code') {
+      return `Auto promo + code ${codeLabel} applied: ${detail}.`;
+    }
+    if (summary.source === 'code') {
+      return `Code ${codeLabel} applied: ${detail}.`;
+    }
+    if (summary.source === 'auto') {
+      return summary.code
+        ? `Auto promotion applied; code ${codeLabel} saved (auto promo was better).`
+        : `Auto promotion applied: ${detail}.`;
+    }
+    return '';
+  }, []);
+
   useEffect(() => {
     let isCancelled = false;
 
@@ -158,13 +198,16 @@ export function CheckoutPage() {
           : targetProductId
           ? [{ productId: targetProductId, quantity: 1 }]
           : [];
+        setSessionItems(sessionItems);
 
-        const session = await createEmbeddedCheckoutSession(sessionItems);
+        const session = await startSession(sessionItems);
         console.log('checkout: session response', session);
         if (isCancelled) return;
-        setClientSecret(session.clientSecret);
-        setSessionId(session.sessionId);
-        recordSessionTimestamp(session.sessionId);
+        if (session.promo) {
+          setPromoFeedback({ type: 'success', message: formatPromoSummary(session.promo) || 'Promotion applied to your checkout.' });
+        } else {
+          setPromoFeedback(null);
+        }
       } catch (err) {
         if (isCancelled) return;
         const message = err instanceof Error ? err.message : 'Unable to start checkout.';
@@ -178,7 +221,7 @@ export function CheckoutPage() {
     return () => {
       isCancelled = true;
     };
-  }, [cartItems, publishableKey, recordSessionTimestamp, targetProductId]);
+  }, [cartItems, publishableKey, startSession, targetProductId, formatPromoSummary]);
 
   useEffect(() => {
     if (!clientSecret) return;
@@ -292,32 +335,77 @@ export function CheckoutPage() {
   }, [cartItems.length, cartSubtotal, previewItems]);
 
   const discountedSubtotalCents = useMemo(() => {
-    if (!promotion) return subtotalCents;
+    const promoCodePercent = promoSummary?.codePercentOff ?? 0;
+    const promoCodeScope = promoSummary?.codeScope ?? null;
+    const promoCodeSlugs = promoSummary?.codeCategorySlugs ?? [];
+    const hasPromoCode = !!promoSummary?.code;
+    const normalizedPromoSlugs = promoCodeSlugs.map((slug) => slug.trim().toLowerCase());
+    const isPromoCodeEligible = (item: { category?: string | null; type?: string | null; categories?: string[] | null }) => {
+      if (!hasPromoCode || !promoCodePercent) return false;
+      if (promoCodeScope === 'global') return true;
+      if (promoCodeScope !== 'categories') return false;
+      const candidate = new Set<string>();
+      const add = (value?: string | null) => {
+        const normalized = (value || '').trim().toLowerCase();
+        if (normalized) candidate.add(normalized);
+      };
+      add(item.category);
+      add(item.type);
+      if (Array.isArray(item.categories)) {
+        item.categories.forEach((value) => add(value));
+      }
+      return Array.from(candidate).some((value) => normalizedPromoSlugs.includes(value));
+    };
+
+    if (!promotion && !hasPromoCode) return subtotalCents;
     if (cartItems.length) {
       return cartItems.reduce((sum, item) => {
-        const eligible = isPromotionEligible(promotion, {
+        const autoEligible = promotion
+          ? isPromotionEligible(promotion, {
+              category: item.category ?? null,
+              type: null,
+              categories: item.categories ?? null,
+            })
+          : false;
+        const codeEligible = isPromoCodeEligible({
           category: item.category ?? null,
           type: null,
           categories: item.categories ?? null,
         });
-        const discounted = eligible ? getDiscountedCents(item.priceCents, promotion.percentOff) : item.priceCents;
+        const bestPercent = Math.max(
+          autoEligible && promotion ? promotion.percentOff : 0,
+          codeEligible ? promoCodePercent : 0
+        );
+        const discounted = bestPercent > 0 ? getDiscountedCents(item.priceCents, bestPercent) : item.priceCents;
         return sum + discounted * item.quantity;
       }, 0);
     }
     if (product) {
       const price = product.priceCents ?? 0;
-      const eligible = isPromotionEligible(promotion, {
+      const autoEligible = promotion
+        ? isPromotionEligible(promotion, {
+            category: product.category ?? product.type ?? null,
+            type: product.type ?? null,
+            categories: product.categories ?? null,
+          })
+        : false;
+      const codeEligible = isPromoCodeEligible({
         category: product.category ?? product.type ?? null,
         type: product.type ?? null,
         categories: product.categories ?? null,
       });
-      return eligible ? getDiscountedCents(price, promotion.percentOff) : price;
+      const bestPercent = Math.max(
+        autoEligible && promotion ? promotion.percentOff : 0,
+        codeEligible ? promoCodePercent : 0
+      );
+      return bestPercent > 0 ? getDiscountedCents(price, bestPercent) : price;
     }
     return subtotalCents;
-  }, [promotion, cartItems, product, subtotalCents]);
+  }, [promotion, cartItems, product, subtotalCents, promoSummary]);
 
   const shippingCents = calculateShippingCentsForCart(shippingItems, categories);
-  const totalCents = (discountedSubtotalCents || 0) + shippingCents;
+  const effectiveShippingCents = promoSummary?.freeShippingApplied ? 0 : shippingCents;
+  const totalCents = (discountedSubtotalCents || 0) + effectiveShippingCents;
 
   const formatMoney = (cents: number) => `$${((cents ?? 0) / 100).toFixed(2)}`;
 
@@ -328,6 +416,8 @@ export function CheckoutPage() {
       </div>
     );
   }
+
+  const promoSummaryText = formatPromoSummary(promoSummary);
 
   return (
     <div className="min-h-screen bg-gray-50 py-12">
@@ -361,15 +451,37 @@ export function CheckoutPage() {
                   <div className="text-sm text-gray-600">No items to display.</div>
                 )}
                 {previewItems.map((item) => {
-                  const eligible =
+                  const autoEligible =
                     !!promotion &&
                     isPromotionEligible(promotion, {
                       category: (item as any).category ?? null,
                       type: null,
                       categories: (item as any).categories ?? null,
                     });
-                  const unitPrice = eligible && promotion
-                    ? getDiscountedCents(item.priceCents ?? 0, promotion.percentOff)
+                  const codeEligible = promoSummary?.code && promoSummary.codePercentOff
+                    ? (() => {
+                        const normalizedPromoSlugs = (promoSummary.codeCategorySlugs || []).map((slug) => slug.trim().toLowerCase());
+                        if (promoSummary.codeScope === 'global') return true;
+                        if (promoSummary.codeScope !== 'categories') return false;
+                        const candidate = new Set<string>();
+                        const add = (value?: string | null) => {
+                          const normalized = (value || '').trim().toLowerCase();
+                          if (normalized) candidate.add(normalized);
+                        };
+                        add((item as any).category ?? null);
+                        add((item as any).type ?? null);
+                        if (Array.isArray((item as any).categories)) {
+                          (item as any).categories.forEach((value: string) => add(value));
+                        }
+                        return Array.from(candidate).some((value) => normalizedPromoSlugs.includes(value));
+                      })()
+                    : false;
+                  const bestPercent = Math.max(
+                    autoEligible && promotion ? promotion.percentOff : 0,
+                    codeEligible ? promoSummary?.codePercentOff || 0 : 0
+                  );
+                  const unitPrice = bestPercent > 0
+                    ? getDiscountedCents(item.priceCents ?? 0, bestPercent)
                     : (item.priceCents ?? 0);
                   const lineTotal = unitPrice * (item.quantity || 1);
                   return (
@@ -411,12 +523,67 @@ export function CheckoutPage() {
                 </div>
                 <div className="flex justify-between text-gray-700">
                   <span>Shipping</span>
-                  <span className="font-serif font-medium">{formatMoney(shippingCents)}</span>
+                  <span className="font-serif font-medium">{formatMoney(effectiveShippingCents)}</span>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-gray-200 text-base font-semibold text-gray-900">
                   <span>Total</span>
                   <span className="font-serif">{formatMoney(totalCents)}</span>
                 </div>
+              </div>
+
+              <div className="border-t border-gray-200 pt-4 space-y-2 text-sm">
+                <p className="text-xs uppercase tracking-wide text-gray-500">Promo code</p>
+                <div className="flex gap-2">
+                  <input
+                    value={promoCodeInput}
+                    onChange={(event) => setPromoCodeInput(event.target.value)}
+                    placeholder="Enter code"
+                    className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!sessionItems.length) return;
+                      const trimmed = promoCodeInput.trim();
+                      setPromoFeedback(null);
+                      setPromoApplying(true);
+                      try {
+                        const session = await startSession(sessionItems, trimmed || null);
+                        if (session.promo) {
+                          const summaryText = formatPromoSummary(session.promo);
+                          setPromoFeedback({ type: 'success', message: summaryText || 'Promo applied.' });
+                        } else {
+                          setPromoFeedback({ type: 'info', message: 'No promo applied to this checkout.' });
+                        }
+                      } catch (err) {
+                        const message = err instanceof Error ? err.message : 'Unable to apply promo code.';
+                        setPromoFeedback({ type: 'error', message });
+                      } finally {
+                        setPromoApplying(false);
+                      }
+                    }}
+                    disabled={promoApplying}
+                    className="rounded-lg bg-gray-900 text-white px-3 py-2 text-xs font-semibold disabled:opacity-60"
+                  >
+                    {promoApplying ? 'Applying...' : 'Apply'}
+                  </button>
+                </div>
+                {promoFeedback && (
+                  <p
+                    className={
+                      promoFeedback.type === 'error'
+                        ? 'text-xs text-red-600'
+                        : promoFeedback.type === 'success'
+                        ? 'text-xs text-emerald-600'
+                        : 'text-xs text-gray-600'
+                    }
+                  >
+                    {promoFeedback.message}
+                  </p>
+                )}
+                {promoSummaryText && !promoFeedback && (
+                  <p className="text-xs text-emerald-600">{promoSummaryText}</p>
+                )}
               </div>
             </div>
           </div>

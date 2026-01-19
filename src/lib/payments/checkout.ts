@@ -1,6 +1,15 @@
 export interface EmbeddedCheckoutSession {
   clientSecret: string;
   sessionId: string;
+  promo?: {
+    code: string | null;
+    percentOff: number;
+    freeShippingApplied: boolean;
+    source: string | null;
+    codePercentOff?: number;
+    codeScope?: 'global' | 'categories' | null;
+    codeCategorySlugs?: string[];
+  } | null;
 }
 
 export interface CheckoutSessionInfo {
@@ -30,8 +39,11 @@ export interface CheckoutSessionInfo {
   cardBrand?: string | null;
 }
 
-export async function createEmbeddedCheckoutSession(items: { productId: string; quantity: number }[]): Promise<EmbeddedCheckoutSession> {
-  const payload = { items };
+export async function createEmbeddedCheckoutSession(
+  items: { productId: string; quantity: number }[],
+  promoCode?: string | null
+): Promise<EmbeddedCheckoutSession> {
+  const payload = { items, promoCode: promoCode || null };
   const response = await fetch('/api/checkout/create-session', {
     method: 'POST',
     headers: {
@@ -62,7 +74,11 @@ export async function createEmbeddedCheckoutSession(items: { productId: string; 
     throw new Error('Missing session id from checkout session');
   }
 
-  return { clientSecret: data.clientSecret as string, sessionId: data.sessionId as string };
+  return {
+    clientSecret: data.clientSecret as string,
+    sessionId: data.sessionId as string,
+    promo: data.promo ?? null,
+  };
 }
 
 export async function fetchCheckoutSession(sessionId: string): Promise<CheckoutSessionInfo | null> {

@@ -168,3 +168,19 @@ export interface PromotionAdmin extends PromotionPublic {
   createdAt: string | null;
   updatedAt: string | null;
 }
+
+export type PromoCodeScope = 'global' | 'categories';
+
+export interface PromoCodeAdmin {
+  id: string;
+  code: string;
+  percentOff: number | null;
+  freeShipping: boolean;
+  scope: PromoCodeScope;
+  categorySlugs: string[];
+  startsAt: string | null;
+  endsAt: string | null;
+  enabled: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+}

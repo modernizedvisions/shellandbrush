@@ -97,6 +97,13 @@ export function OrderDetailsModal({ open, order, onClose }: OrderDetailsModalPro
       : inferredShippingFromTotal > 0
       ? inferredShippingFromTotal
       : 0;
+  const promoPercentOff =
+    Number.isFinite(order.promoPercentOff as number) ? Math.max(0, Number(order.promoPercentOff)) : null;
+  const promoFreeShipping =
+    order.promoFreeShipping === 1 || order.promoFreeShipping === true ? true : false;
+  const promoSource = order.promoSource || null;
+  const hasPromo =
+    !!order.promoCode || promoPercentOff !== null || promoFreeShipping || !!promoSource;
 
   const formattedAddress = hasShipping
     ? [
@@ -205,6 +212,32 @@ export function OrderDetailsModal({ open, order, onClose }: OrderDetailsModalPro
                 </div>
               </div>
             </section>
+
+            {hasPromo && (
+              <section className="rounded-lg border border-slate-200 p-4">
+                <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-2">Promotion</p>
+                <div className="space-y-1 text-sm text-slate-700">
+                  <div>
+                    <span className="text-slate-500">Code:</span>{' '}
+                    <span className="font-medium text-slate-900">{order.promoCode ? order.promoCode.toUpperCase() : '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Percent Off:</span>{' '}
+                    <span className="font-medium text-slate-900">
+                      {promoPercentOff !== null ? `${promoPercentOff}%` : '—'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Free Shipping:</span>{' '}
+                    <span className="font-medium text-slate-900">{promoFreeShipping ? 'Yes' : 'No'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Source:</span>{' '}
+                    <span className="font-medium text-slate-900">{promoSource || '—'}</span>
+                  </div>
+                </div>
+              </section>
+            )}
           </div>
         </div>
       </div>

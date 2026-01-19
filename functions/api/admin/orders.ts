@@ -21,6 +21,10 @@ type OrderRow = {
   shipping_address_json: string | null;
   card_last4?: string | null;
   card_brand?: string | null;
+  promo_code?: string | null;
+  promo_percent_off?: number | null;
+  promo_free_shipping?: number | null;
+  promo_source?: string | null;
   created_at: string;
 };
 
@@ -40,7 +44,7 @@ export const onRequestGet = async (context: { env: { DB: D1Database; ADMIN_PASSW
   try {
     await assertOrdersTables(context.env.DB);
     const columns = await context.env.DB.prepare(`PRAGMA table_info(orders);`).all<{ name: string }>();
-    const columnNames = (columns.results || []).map((c) => c.name);
+  const columnNames = (columns.results || []).map((c) => c.name);
     const emailColumn = columnNames.includes('customer_email')
       ? 'customer_email'
       : columnNames.includes('customer_email1')
@@ -49,6 +53,10 @@ export const onRequestGet = async (context: { env: { DB: D1Database; ADMIN_PASSW
     const displayIdColumn = columnNames.includes('display_order_id') ? 'display_order_id' : null;
     const cardLast4Column = columnNames.includes('card_last4') ? 'card_last4' : null;
     const cardBrandColumn = columnNames.includes('card_brand') ? 'card_brand' : null;
+    const promoCodeColumn = columnNames.includes('promo_code') ? 'promo_code' : null;
+    const promoPercentColumn = columnNames.includes('promo_percent_off') ? 'promo_percent_off' : null;
+    const promoFreeShippingColumn = columnNames.includes('promo_free_shipping') ? 'promo_free_shipping' : null;
+    const promoSourceColumn = columnNames.includes('promo_source') ? 'promo_source' : null;
 
     const selectSql = `
       SELECT
@@ -61,6 +69,10 @@ export const onRequestGet = async (context: { env: { DB: D1Database; ADMIN_PASSW
         shipping_address_json,
         ${cardLast4Column ? `${cardLast4Column} AS card_last4` : 'NULL AS card_last4'},
         ${cardBrandColumn ? `${cardBrandColumn} AS card_brand` : 'NULL AS card_brand'},
+        ${promoCodeColumn ? `${promoCodeColumn} AS promo_code` : 'NULL AS promo_code'},
+        ${promoPercentColumn ? `${promoPercentColumn} AS promo_percent_off` : 'NULL AS promo_percent_off'},
+        ${promoFreeShippingColumn ? `${promoFreeShippingColumn} AS promo_free_shipping` : 'NULL AS promo_free_shipping'},
+        ${promoSourceColumn ? `${promoSourceColumn} AS promo_source` : 'NULL AS promo_source'},
         created_at
       FROM orders
       ORDER BY datetime(created_at) DESC
@@ -74,6 +86,10 @@ export const onRequestGet = async (context: { env: { DB: D1Database; ADMIN_PASSW
       displayIdColumn,
       cardLast4Column,
       cardBrandColumn,
+      promoCodeColumn,
+      promoPercentColumn,
+      promoFreeShippingColumn,
+      promoSourceColumn,
       count: orderRows.length,
     });
 
@@ -123,6 +139,10 @@ export const onRequestGet = async (context: { env: { DB: D1Database; ADMIN_PASSW
       createdAt: o.created_at,
       totalCents: o.total_cents ?? 0,
       shippingCents: hasShippingCents ? (o as any).shipping_cents ?? 0 : 0,
+      promoCode: promoCodeColumn ? ((o as any).promo_code ?? null) : null,
+      promoPercentOff: promoPercentColumn ? ((o as any).promo_percent_off ?? null) : null,
+      promoFreeShipping: promoFreeShippingColumn ? ((o as any).promo_free_shipping ?? null) : null,
+      promoSource: promoSourceColumn ? ((o as any).promo_source ?? null) : null,
       customerEmail: o.customer_email,
       shippingName: o.shipping_name,
       customerName: o.shipping_name,

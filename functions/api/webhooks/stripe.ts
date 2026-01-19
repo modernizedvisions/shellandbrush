@@ -307,6 +307,20 @@ export const onRequestPost = async (context: {
           ? itemsSubtotalFromLines
           : session.amount_subtotal ?? Math.max(0, totalCentsForEmail - shippingCentsForEmail);
       const isShopOrder = !invoiceId && !customOrderId && !customSource;
+      const promoCodeRaw = (session.metadata as any)?.mv_promo_code ?? null;
+      const promoSourceRaw = (session.metadata as any)?.mv_promo_source ?? null;
+      const promoPercentRaw = (session.metadata as any)?.mv_percent_off_applied ?? null;
+      const promoFreeShippingRaw = (session.metadata as any)?.mv_free_shipping_applied ?? null;
+      const hasPromoMetadata = !!(promoCodeRaw || promoSourceRaw);
+      const promoCode = typeof promoCodeRaw === 'string' && promoCodeRaw.trim() ? promoCodeRaw.trim() : null;
+      const promoSource = typeof promoSourceRaw === 'string' && promoSourceRaw.trim() ? promoSourceRaw.trim() : null;
+      const promoPercentParsed = Number(promoPercentRaw);
+      const promoPercentOff =
+        Number.isFinite(promoPercentParsed) && promoPercentParsed >= 0
+          ? Math.round(promoPercentParsed)
+          : null;
+      const promoFreeShipping =
+        promoFreeShippingRaw === '1' || promoFreeShippingRaw === 1 || promoFreeShippingRaw === true ? 1 : 0;
       const shippingAddressText = formatShippingAddress(shippingAddress);
       const billingAddressText = formatShippingAddress(firstCharge?.billing_details?.address || null);
       const paymentMethodLabel = formatPaymentMethodLabel(cardBrand, cardLast4);
@@ -450,6 +464,10 @@ export const onRequestPost = async (context: {
         cardLast4,
         cardBrand,
         shippingCents,
+        promoCode: hasPromoMetadata ? promoCode : null,
+        promoPercentOff: hasPromoMetadata ? (promoPercentOff ?? 0) : null,
+        promoFreeShipping: hasPromoMetadata ? promoFreeShipping : null,
+        promoSource: hasPromoMetadata ? promoSource : null,
         productId,
         quantityFromMeta,
       });
@@ -727,6 +745,10 @@ async function ensureOrdersSchema(db: D1Database) {
   await addColumnIfMissing('order_type', `ALTER TABLE orders ADD COLUMN order_type TEXT;`);
   await addColumnIfMissing('currency', `ALTER TABLE orders ADD COLUMN currency TEXT;`);
   await addColumnIfMissing('description', `ALTER TABLE orders ADD COLUMN description TEXT;`);
+  await addColumnIfMissing('promo_code', `ALTER TABLE orders ADD COLUMN promo_code TEXT;`);
+  await addColumnIfMissing('promo_percent_off', `ALTER TABLE orders ADD COLUMN promo_percent_off INTEGER;`);
+  await addColumnIfMissing('promo_free_shipping', `ALTER TABLE orders ADD COLUMN promo_free_shipping INTEGER;`);
+  await addColumnIfMissing('promo_source', `ALTER TABLE orders ADD COLUMN promo_source TEXT;`);
 
   await db
     .prepare(
@@ -1113,6 +1135,24 @@ async function ensureCustomOrdersSchema(db: D1Database) {
       }
     }
   }
+}
+
+async function ensurePromoColumns(db: D1Database) {
+  const columns = await db.prepare(`PRAGMA table_info(orders);`).all<{ name: string }>();
+  const columnNames = new Set((columns.results || []).map((c) => c.name));
+  const addColumn = async (name: string, ddl: string) => {
+    if (columnNames.has(name)) return;
+    try {
+      await db.prepare(ddl).run();
+      console.log('[stripe webhook] added', name, 'column to orders');
+    } catch (err) {
+      console.error('[stripe webhook] failed to add', name, 'column', err);
+    }
+  };
+  await addColumn('promo_code', `ALTER TABLE orders ADD COLUMN promo_code TEXT;`);
+  await addColumn('promo_percent_off', `ALTER TABLE orders ADD COLUMN promo_percent_off INTEGER;`);
+  await addColumn('promo_free_shipping', `ALTER TABLE orders ADD COLUMN promo_free_shipping INTEGER;`);
+  await addColumn('promo_source', `ALTER TABLE orders ADD COLUMN promo_source TEXT;`);
 }
 
 async function ensureGalleryItemsSchema(db: D1Database) {
@@ -1699,6 +1739,10 @@ async function insertStandardOrderAndItems(args: {
   cardLast4: string | null;
   cardBrand: string | null;
   shippingCents: number;
+  promoCode?: string | null;
+  promoPercentOff?: number | null;
+  promoFreeShipping?: number | null;
+  promoSource?: string | null;
   productId?: string | null;
   quantityFromMeta?: number;
   displayOrderIdOverride?: string | null;
@@ -1717,6 +1761,10 @@ async function insertStandardOrderAndItems(args: {
     cardLast4,
     cardBrand,
     shippingCents,
+    promoCode,
+    promoPercentOff,
+    promoFreeShipping,
+    promoSource,
     productId,
     quantityFromMeta,
     displayOrderIdOverride,
@@ -1739,6 +1787,7 @@ async function insertStandardOrderAndItems(args: {
 
   await assertOrdersTables(db);
   await ensureShippingColumn(db);
+  await ensurePromoColumns(db);
 
   const orderId = crypto.randomUUID();
   const displayOrderId = displayOrderIdOverride || (await generateDisplayOrderId(db));
@@ -1756,8 +1805,9 @@ async function insertStandardOrderAndItems(args: {
     .prepare(
       `
         INSERT INTO orders (
-          id, display_order_id, order_type, stripe_payment_intent_id, total_cents, customer_email, shipping_name, shipping_address_json, card_last4, card_brand, shipping_cents, description
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+          id, display_order_id, order_type, stripe_payment_intent_id, total_cents, customer_email, shipping_name, shipping_address_json, card_last4, card_brand, shipping_cents, description,
+          promo_code, promo_percent_off, promo_free_shipping, promo_source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       `
     )
     .bind(
@@ -1772,7 +1822,11 @@ async function insertStandardOrderAndItems(args: {
       cardLast4,
       cardBrand,
       shippingCents,
-      description ?? null
+      description ?? null,
+      promoCode ?? null,
+      promoPercentOff ?? null,
+      promoFreeShipping ?? null,
+      promoSource ?? null
     )
     .run();
 

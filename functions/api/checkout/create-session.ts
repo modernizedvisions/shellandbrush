@@ -54,6 +54,27 @@ type ActivePromotion = {
   categorySlugs: string[];
 };
 
+type PromoCodeRow = {
+  id: string;
+  code: string | null;
+  percent_off: number | null;
+  free_shipping: number | null;
+  scope: 'global' | 'categories' | null;
+  category_slugs_json: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  enabled: number | null;
+};
+
+type ActivePromoCode = {
+  id: string;
+  code: string;
+  percentOff: number;
+  freeShipping: boolean;
+  scope: 'global' | 'categories';
+  categorySlugs: string[];
+};
+
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
@@ -74,6 +95,7 @@ const normalizeOrigin = (request: Request) => {
 };
 
 const normalizeValue = (value?: string | null) => (value || '').trim().toLowerCase();
+const normalizeCode = (value?: string | null) => normalizeValue(value);
 
 const parseCategorySlugs = (value: string | null): string[] => {
   if (!value) return [];
@@ -127,6 +149,43 @@ const loadActivePromotion = async (db: D1Database): Promise<ActivePromotion | nu
   }
 };
 
+const loadPromoCode = async (db: D1Database, code: string): Promise<ActivePromoCode | null> => {
+  try {
+    const row = await db
+      .prepare(
+        `SELECT id, code, percent_off, free_shipping, scope, category_slugs_json, starts_at, ends_at, enabled
+         FROM promo_codes WHERE LOWER(code) = ? LIMIT 1;`
+      )
+      .bind(normalizeCode(code))
+      .first<PromoCodeRow>();
+
+    if (!row || row.enabled !== 1 || !row.code) return null;
+    if (!isValidDateValue(row.starts_at) || !isValidDateValue(row.ends_at)) return null;
+    const now = Date.now();
+    const startsAt = row.starts_at ? Date.parse(row.starts_at) : null;
+    const endsAt = row.ends_at ? Date.parse(row.ends_at) : null;
+    if (startsAt !== null && Number.isFinite(startsAt) && now < startsAt) return null;
+    if (endsAt !== null && Number.isFinite(endsAt) && now > endsAt) return null;
+
+    const percentOff = Math.round(Number(row.percent_off ?? 0));
+    const freeShipping = row.free_shipping === 1;
+    if (!Number.isFinite(percentOff)) return null;
+    if (percentOff <= 0 && !freeShipping) return null;
+    const scope = row.scope === 'categories' ? 'categories' : 'global';
+    return {
+      id: row.id,
+      code: row.code,
+      percentOff: percentOff > 0 ? percentOff : 0,
+      freeShipping,
+      scope,
+      categorySlugs: parseCategorySlugs(row.category_slugs_json),
+    };
+  } catch (error) {
+    console.error('Failed to load promo code', error);
+    return null;
+  }
+};
+
 const buildEligibleCategorySet = async (
   db: D1Database,
   slugs: string[]
@@ -170,7 +229,10 @@ export const onRequestPost = async (context: {
   console.log('Stripe secret present?', !!stripeSecretKey);
 
   try {
-    const body = (await request.json()) as { items?: { productId?: string; quantity?: number }[] };
+    const body = (await request.json()) as {
+      items?: { productId?: string; quantity?: number }[];
+      promoCode?: string | null;
+    };
     const itemsPayload = Array.isArray(body.items) ? body.items : [];
     if (!itemsPayload.length) {
       return json({ error: 'At least one item is required' }, 400);
@@ -238,7 +300,17 @@ export const onRequestPost = async (context: {
       promotion && promotion.scope === 'categories'
         ? await buildEligibleCategorySet(env.DB, promotion.categorySlugs)
         : new Set<string>();
+    const promoCodeInput = normalizeCode(body.promoCode);
+    const promoCode = promoCodeInput ? await loadPromoCode(env.DB, promoCodeInput) : null;
+    const promoCodeEligibleSet =
+      promoCode && promoCode.scope === 'categories'
+        ? await buildEligibleCategorySet(env.DB, promoCode.categorySlugs)
+        : new Set<string>();
     let discountedCount = 0;
+    let appliedAutoPercent = false;
+    let appliedCodePercent = false;
+    let appliedPercentOff = 0;
+    let hasCodeEligibleItem = promoCode?.scope === 'global' ? true : false;
 
     for (const pid of productIds) {
       const product = productMap.get(pid);
@@ -268,15 +340,34 @@ export const onRequestPost = async (context: {
       }
 
       const normalizedCategory = normalizeValue(product.category);
-      const eligible =
-        promotion?.scope === 'global' ||
-        (promotion?.scope === 'categories' && normalizedCategory && eligibleCategorySet.has(normalizedCategory));
+      const autoEligiblePercent =
+        promotion &&
+        (promotion.scope === 'global' ||
+          (promotion.scope === 'categories' && normalizedCategory && eligibleCategorySet.has(normalizedCategory)))
+          ? promotion.percentOff
+          : 0;
+      const codeEligible =
+        promoCode &&
+        (promoCode.scope === 'global' ||
+          (promoCode.scope === 'categories' && normalizedCategory && promoCodeEligibleSet.has(normalizedCategory)));
+      const codeEligiblePercent =
+        codeEligible && promoCode && promoCode.percentOff > 0 ? promoCode.percentOff : 0;
+      if (codeEligible) {
+        hasCodeEligibleItem = true;
+      }
+
+      let appliedPercent = autoEligiblePercent;
+      let usedCodePercent = false;
+      if (codeEligiblePercent > appliedPercent) {
+        appliedPercent = codeEligiblePercent;
+        usedCodePercent = true;
+      }
+
       const discountedCents =
-        eligible && promotion ? getDiscountedCents(product.price_cents, promotion.percentOff) : product.price_cents;
+        appliedPercent > 0 ? getDiscountedCents(product.price_cents, appliedPercent) : product.price_cents;
 
       if (
-        eligible &&
-        promotion &&
+        appliedPercent > 0 &&
         product.stripe_product_id &&
         Number.isFinite(discountedCents)
       ) {
@@ -289,6 +380,12 @@ export const onRequestPost = async (context: {
           quantity,
         });
         discountedCount += 1;
+        appliedPercentOff = Math.max(appliedPercentOff, appliedPercent);
+        if (usedCodePercent) {
+          appliedCodePercent = true;
+        } else if (autoEligiblePercent > 0) {
+          appliedAutoPercent = true;
+        }
       } else {
         lineItems.push({
           price: product.stripe_price_id,
@@ -306,7 +403,29 @@ export const onRequestPost = async (context: {
       return json({ error: 'Server configuration error: missing site URL' }, 500);
     }
 
-    const shippingCents = calculateShippingCentsForCart(cartCategoryItems, categoryConfigs);
+    if (promoCodeInput && !promoCode) {
+      return json({ error: 'Promo code is invalid or expired' }, 400);
+    }
+    if (promoCode && promoCode.scope === 'categories' && !hasCodeEligibleItem) {
+      return json({ error: 'Promo code is not eligible for these items' }, 400);
+    }
+
+    let shippingCents = calculateShippingCentsForCart(cartCategoryItems, categoryConfigs);
+    let appliedFreeShipping = false;
+    if (promoCode && promoCode.freeShipping) {
+      appliedFreeShipping = true;
+      shippingCents = 0;
+    }
+
+    const promoSource =
+      appliedAutoPercent && (appliedCodePercent || appliedFreeShipping)
+        ? 'auto+code'
+        : appliedAutoPercent
+        ? 'auto'
+        : appliedCodePercent || appliedFreeShipping
+        ? 'code'
+        : null;
+
     const expiresAt = Math.floor(Date.now() / 1000) + 1800; // Stripe requires at least 30 minutes
     console.log('Creating embedded checkout session with expires_at', expiresAt);
     if (promotion && discountedCount > 0) {
@@ -314,6 +433,14 @@ export const onRequestPost = async (context: {
         promotionId: promotion.id,
         discountedCount,
         scope: promotion.scope,
+      });
+    }
+    if (promoCode) {
+      console.log('Promo code applied to checkout session', {
+        promoCode: promoCode.code,
+        appliedPercentOff,
+        appliedFreeShipping,
+        promoSource,
       });
     }
 
@@ -333,7 +460,14 @@ export const onRequestPost = async (context: {
             quantity: 1,
           }] : lineItems,
         return_url: `${baseUrl}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
-        metadata: { shipping_cents: String(shippingCents) },
+        metadata: {
+          shipping_cents: String(shippingCents),
+          mv_promo_code: promoCode?.code || '',
+          mv_free_shipping_applied: appliedFreeShipping ? '1' : '0',
+          mv_percent_off_applied: String(appliedPercentOff || 0),
+          mv_promo_source: promoSource || '',
+          mv_auto_promo_id: appliedAutoPercent && promotion?.id ? promotion.id : '',
+        },
         consent_collection: {
           promotions: 'auto',
         },
@@ -348,7 +482,21 @@ export const onRequestPost = async (context: {
         return json({ error: 'Unable to create checkout session' }, 500);
       }
 
-      return json({ clientSecret: session.client_secret, sessionId: session.id });
+      return json({
+        clientSecret: session.client_secret,
+        sessionId: session.id,
+        promo: promoSource || promoCode
+          ? {
+              code: promoCode?.code || null,
+              percentOff: appliedPercentOff || 0,
+              freeShippingApplied: appliedFreeShipping,
+              source: promoSource,
+              codePercentOff: promoCode?.percentOff ?? 0,
+              codeScope: promoCode?.scope ?? null,
+              codeCategorySlugs: promoCode?.categorySlugs ?? [],
+            }
+          : null,
+      });
     } catch (stripeError: any) {
       console.error('Stripe checkout session error:', stripeError?.message || stripeError, stripeError?.raw);
       const message =

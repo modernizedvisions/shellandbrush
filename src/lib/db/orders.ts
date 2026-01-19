@@ -22,6 +22,10 @@ export type AdminOrder = {
   paymentMethodType?: string | null;
   paymentMethodLabel?: string | null;
   shippingCents?: number | null;
+  promoCode?: string | null;
+  promoPercentOff?: number | null;
+  promoFreeShipping?: number | null;
+  promoSource?: string | null;
   items: AdminOrderItem[];
 };
 
