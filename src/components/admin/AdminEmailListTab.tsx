@@ -64,17 +64,19 @@ export const AdminEmailListTab: React.FC = () => {
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="relative">
         <AdminSectionHeader title="Email List" subtitle="Customer email signups." />
-        <button
-          type="button"
-          onClick={handleCopyAll}
-          disabled={!sortedSignups.length}
-          className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Copy className="h-4 w-4" />
-          Copy All
-        </button>
+        <div className="mt-3 md:mt-0 md:absolute md:right-0 md:top-1/2 md:-translate-y-1/2 flex justify-center md:justify-end">
+          <button
+            type="button"
+            onClick={handleCopyAll}
+            disabled={!sortedSignups.length}
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Copy className="h-4 w-4" />
+            Copy All
+          </button>
+        </div>
       </div>
 
       {isLoading && <div className="text-sm text-gray-500">Loading email list...</div>}
