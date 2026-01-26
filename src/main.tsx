@@ -86,7 +86,7 @@ createRoot(document.getElementById('root')!).render(
             }
           />
           <Route
-            path="emaillist"
+            path="join"
             element={
               <Suspense fallback={<RouteFallback />}>
                 <EmailListPage />

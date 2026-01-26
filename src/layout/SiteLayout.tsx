@@ -22,7 +22,7 @@ function SiteLayoutContent() {
   const navDrawerRef = useRef<HTMLDivElement | null>(null);
   const location = useLocation();
   const { promotion } = usePromotion();
-  const isEmailList = location.pathname === '/emaillist';
+  const isEmailList = location.pathname === '/join';
   const bannerText =
     promotion && promotion.bannerEnabled && promotion.bannerText.trim()
       ? promotion.bannerText.trim()
