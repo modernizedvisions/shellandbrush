@@ -24,6 +24,9 @@ const CheckoutPage = lazy(() =>
 const CheckoutReturnPage = lazy(() =>
   import('./pages/CheckoutReturnPage').then((m) => ({ default: m.CheckoutReturnPage }))
 );
+const EmailListPage = lazy(() =>
+  import('./pages/EmailListPage').then((m) => ({ default: m.EmailListPage }))
+);
 const AdminPage = lazy(() =>
   import('./pages/AdminPage').then((m) => ({ default: m.AdminPage }))
 );
@@ -79,6 +82,14 @@ createRoot(document.getElementById('root')!).render(
             element={
               <Suspense fallback={<RouteFallback />}>
                 <CheckoutReturnPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="emaillist"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <EmailListPage />
               </Suspense>
             }
           />

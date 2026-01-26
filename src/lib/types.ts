@@ -148,6 +148,12 @@ export interface Review {
   createdAt: string; // ISO date
 }
 
+export interface EmailListSignup {
+  id: string;
+  email: string;
+  createdAt: string;
+}
+
 
 export type PromotionScope = 'global' | 'categories';
 

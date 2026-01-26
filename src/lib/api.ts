@@ -21,7 +21,7 @@ import { createEmbeddedCheckoutSession, fetchCheckoutSession } from './payments/
 import { sendContactEmail } from './contact';
 import { verifyAdminPassword } from './auth';
 import { adminFetch, getStoredAdminPassword } from './adminAuth';
-import type { Category } from './types';
+import type { Category, EmailListSignup } from './types';
 import { createWebpVariant } from './imageVariants';
 
 // Aggregates the mock data layer and stubs so the UI can continue working while we
@@ -342,5 +342,41 @@ export async function adminDeleteMessage(id: string): Promise<void> {
     const trimmed = text.length > 500 ? `${text.slice(0, 500)}...` : text;
     throw new Error(trimmed || `Delete message failed (${response.status})`);
   }
+}
+
+export async function subscribeToEmailList(email: string): Promise<{
+  signup: EmailListSignup;
+  alreadySubscribed: boolean;
+}> {
+  const response = await fetch('/api/email-list/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data?.success === false) {
+    const message = data?.error || `Email signup failed (${response.status})`;
+    throw new Error(message);
+  }
+  return {
+    signup: {
+      id: data.signup?.id || '',
+      email: data.signup?.email || email,
+      createdAt: data.signup?.createdAt || '',
+    },
+    alreadySubscribed: !!data?.alreadySubscribed,
+  };
+}
+
+export async function adminFetchEmailList(): Promise<EmailListSignup[]> {
+  const response = await adminFetch('/api/admin/email-list', { headers: { Accept: 'application/json' } });
+  if (!response.ok) throw new Error(`Admin email list fetch failed: ${response.status}`);
+  const data = await response.json().catch(() => ({}));
+  const signups = Array.isArray(data?.signups) ? data.signups : [];
+  return signups.map((row: any) => ({
+    id: row.id || '',
+    email: row.email || '',
+    createdAt: row.createdAt || row.created_at || '',
+  }));
 }
 
