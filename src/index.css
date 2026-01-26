@@ -15,6 +15,36 @@
 }
 
 @layer utilities {
+  .marquee {
+    width: 100%;
+  }
+
+  .marqueeTrack {
+    display: flex;
+    width: max-content;
+    animation: marqueeScroll var(--marquee-duration, 38s) linear infinite;
+    will-change: transform;
+  }
+
+  .marquee:hover .marqueeTrack {
+    animation-play-state: paused;
+  }
+
+  @keyframes marqueeScroll {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .marqueeTrack {
+      animation: none !important;
+      transform: none !important;
+    }
+  }
   /* Landscape phones/tablets under desktop breakpoint: force 4 columns for the home category grid */
   .mobile-landscape\:grid-cols-4 {
     @media (orientation: landscape) and (max-width: 1023px) {
