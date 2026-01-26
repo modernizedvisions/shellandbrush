@@ -22,6 +22,7 @@ function SiteLayoutContent() {
   const navDrawerRef = useRef<HTMLDivElement | null>(null);
   const location = useLocation();
   const { promotion } = usePromotion();
+  const isEmailList = location.pathname === '/emaillist';
   const bannerText =
     promotion && promotion.bannerEnabled && promotion.bannerText.trim()
       ? promotion.bannerText.trim()
@@ -92,7 +93,7 @@ function SiteLayoutContent() {
   }, [location.pathname]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-white">
+    <div className={`min-h-screen flex flex-col ${isEmailList ? 'bg-[#F8F5F0]' : 'bg-white'}`}>
       {bannerText && (
         <div
           className="w-full text-center text-sm font-medium py-2 px-3"
@@ -168,7 +169,7 @@ function SiteLayoutContent() {
         </>
       )}
 
-      <main className="flex-1 bg-white">
+      <main className={`flex-1 ${isEmailList ? 'bg-transparent' : 'bg-white'}`}>
         <Outlet />
       </main>
 
