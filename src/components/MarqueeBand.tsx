@@ -12,7 +12,7 @@ type MarqueeBandProps = {
   className?: string;
 };
 
-export function MarqueeBand({ tiles, durationSeconds = 70, className = '' }: MarqueeBandProps) {
+export function MarqueeBand({ tiles, durationSeconds = 140, className = '' }: MarqueeBandProps) {
   const [isPaused, setIsPaused] = useState(false);
   const looped = useMemo(() => [...tiles, ...tiles], [tiles]);
 
