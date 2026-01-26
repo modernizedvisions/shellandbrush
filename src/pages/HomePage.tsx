@@ -10,9 +10,9 @@ export function HomePage() {
     <div className="bg-white">
       <HeroSection />
       <FeaturedWorksSection />
-      <EmailSignupBand />
       <ReviewsSection />
       <SocialsSection />
+      <EmailSignupBand />
       <HomeContactSection />
     </div>
   );
