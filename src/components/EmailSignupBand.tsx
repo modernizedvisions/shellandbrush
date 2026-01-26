@@ -5,9 +5,14 @@ import { subscribeToEmailList } from '../lib/api';
 type EmailSignupBandProps = {
   withBackground?: boolean;
   sectionClassName?: string;
+  containerClassName?: string;
 };
 
-export function EmailSignupBand({ withBackground = true, sectionClassName = '' }: EmailSignupBandProps) {
+export function EmailSignupBand({
+  withBackground = true,
+  sectionClassName = '',
+  containerClassName = '',
+}: EmailSignupBandProps) {
   const [email, setEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [status, setStatus] = useState<'idle' | 'success' | 'exists' | 'error'>('idle');
@@ -42,7 +47,7 @@ export function EmailSignupBand({ withBackground = true, sectionClassName = '' }
     <section
       className={`py-16 md:py-24 ${withBackground ? 'bg-[#F8F5F0]' : ''} ${sectionClassName}`.trim()}
     >
-      <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+      <div className={`mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 ${containerClassName}`.trim()}>
         <div className="text-center">
           <h2 className="text-3xl md:text-4xl font-serif font-semibold text-gray-900">
             Join the Email List
