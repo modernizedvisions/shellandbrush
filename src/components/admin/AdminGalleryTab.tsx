@@ -2,6 +2,7 @@ import React from 'react';
 import { Eye, EyeOff, Plus, Trash2, Upload } from 'lucide-react';
 import type { GalleryImage } from '../../lib/types';
 import { adminUploadImage } from '../../lib/api';
+import { debugUploadsEnabled, formatUploadDebugError } from '../../lib/debugUploads';
 import { AdminSectionHeader } from './AdminSectionHeader';
 import { AdminSaveButton } from './AdminSaveButton';
 
@@ -65,6 +66,7 @@ function GalleryAdmin({
   description = 'Add, hide, or remove gallery images.', // Uses PUT /api/gallery with payload { images: GalleryImage[] }
   maxImages,
 }: GalleryAdminProps) {
+  const debugUploads = debugUploadsEnabled();
   const blockedCount = images.filter((img) => isBlockedImageUrl(img.imageUrl)).length;
   const handleAddImages = async (files: FileList | null) => {
     if (!files) return;
@@ -109,13 +111,18 @@ function GalleryAdmin({
           )
         );
       } catch (err) {
+        const message = debugUploads
+          ? formatUploadDebugError(err)
+          : err instanceof Error
+            ? err.message
+            : 'Upload failed';
         onChange((prev) =>
           prev.map((img) =>
             img.id === placeholder.id
               ? {
                   ...img,
                   uploading: false,
-                  uploadError: err instanceof Error ? err.message : 'Upload failed',
+                  uploadError: message,
                 }
               : img
           )

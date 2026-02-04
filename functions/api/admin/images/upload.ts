@@ -15,6 +15,7 @@ type Env = {
   MV_IMAGES?: R2Bucket;
   PUBLIC_IMAGES_BASE_URL?: string;
   DB?: D1Database;
+  DEBUG_UPLOADS?: string;
 };
 
 const BUILD_FINGERPRINT = 'upload-fingerprint-2025-12-21-a';
@@ -40,6 +41,34 @@ const withFingerprint = <T extends Record<string, unknown>>(data: T) => ({
   fingerprint: BUILD_FINGERPRINT,
 });
 
+const isDebugUploads = (request: Request, env: Env) => {
+  const url = new URL(request.url);
+  return url.searchParams.get('debug') === '1' || env.DEBUG_UPLOADS === '1' || env.DEBUG_UPLOADS === 'true';
+};
+
+const getRefererHost = (request: Request) => {
+  const referer = request.headers.get('referer');
+  if (!referer) return null;
+  try {
+    return new URL(referer).host;
+  } catch {
+    return null;
+  }
+};
+
+const buildDebugFields = (request: Request, contentType: string | null, contentLength: string | null) => ({
+  debug: true,
+  host: request.headers.get('host'),
+  origin: request.headers.get('origin'),
+  refererHost: getRefererHost(request),
+  method: request.method,
+  isOptions: request.method.toUpperCase() === 'OPTIONS',
+  adminHeaderPresent: !!(request.headers.get('x-admin-password') || '').trim(),
+  contentType: contentType ?? request.headers.get('content-type'),
+  contentLength: contentLength ?? request.headers.get('content-length'),
+  requestId: request.headers.get('x-upload-request-id') || null,
+});
+
 const extensionForMime = (mime: string) => {
   switch (mime) {
     case 'image/jpeg':
@@ -55,8 +84,34 @@ const extensionForMime = (mime: string) => {
 
 export async function onRequestOptions(context: { request: Request; env: Env }): Promise<Response> {
   const { request, env } = context;
+  const url = new URL(request.url);
+  const hasDebugQuery = url.searchParams.get('debug') === '1';
+  if (hasDebugQuery) {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        ...corsHeaders(),
+        'X-Upload-Fingerprint': BUILD_FINGERPRINT,
+      },
+    });
+  }
+  const debugEnabled = isDebugUploads(request, env);
   const auth = requireAdmin(request, env);
-  if (auth) return auth;
+  if (auth) {
+    if (debugEnabled) {
+      return json(
+        withFingerprint({
+          ok: false,
+          code: 'UNAUTHORIZED',
+          message: 'Admin authentication required.',
+          ...buildDebugFields(request, request.headers.get('content-type'), request.headers.get('content-length')),
+        }),
+        auth.status,
+        corsHeaders()
+      );
+    }
+    return auth;
+  }
   console.log('[images/upload] handler', {
     handler: 'OPTIONS',
     method: request.method,
@@ -64,6 +119,16 @@ export async function onRequestOptions(context: { request: Request; env: Env }):
     contentType: request.headers.get('content-type') || '',
     requestId: request.headers.get('x-upload-request-id'),
   });
+  if (debugEnabled) {
+    return json(
+      withFingerprint({
+        ok: true,
+        ...buildDebugFields(request, request.headers.get('content-type'), request.headers.get('content-length')),
+      }),
+      200,
+      corsHeaders()
+    );
+  }
   return new Response(null, {
     status: 204,
     headers: {
@@ -76,7 +141,21 @@ export async function onRequestOptions(context: { request: Request; env: Env }):
 export async function onRequestGet(context: { request: Request; env: Env }): Promise<Response> {
   const { request, env } = context;
   const auth = requireAdmin(request, env);
-  if (auth) return auth;
+  if (auth) {
+    if (isDebugUploads(request, env)) {
+      return json(
+        withFingerprint({
+          ok: false,
+          code: 'UNAUTHORIZED',
+          message: 'Admin authentication required.',
+          ...buildDebugFields(request, request.headers.get('content-type'), request.headers.get('content-length')),
+        }),
+        auth.status,
+        corsHeaders()
+      );
+    }
+    return auth;
+  }
   console.log('[images/upload] handler', {
     handler: 'GET',
     method: request.method,
@@ -89,6 +168,9 @@ export async function onRequestGet(context: { request: Request; env: Env }): Pro
       error: 'Method not allowed. Use POST.',
       method: 'GET',
       path: request.url,
+      ...(isDebugUploads(request, env)
+        ? buildDebugFields(request, request.headers.get('content-type'), request.headers.get('content-length'))
+        : {}),
     }),
     405,
     corsHeaders()
@@ -98,13 +180,28 @@ export async function onRequestGet(context: { request: Request; env: Env }): Pro
 export async function onRequestPost(context: { request: Request; env: Env }): Promise<Response> {
   const { request, env } = context;
   const auth = requireAdmin(request, env);
-  if (auth) return auth;
+  if (auth) {
+    if (isDebugUploads(request, env)) {
+      return json(
+        withFingerprint({
+          ok: false,
+          code: 'UNAUTHORIZED',
+          message: 'Admin authentication required.',
+          ...buildDebugFields(request, request.headers.get('content-type'), request.headers.get('content-length')),
+        }),
+        auth.status,
+        corsHeaders()
+      );
+    }
+    return auth;
+  }
   const contentType = request.headers.get('content-type') || '';
   const contentLength = request.headers.get('content-length') || '';
   const url = new URL(request.url);
   const rid = url.searchParams.get('rid') || request.headers.get('x-upload-request-id') || null;
   const scopeParam = (url.searchParams.get('scope') || '').toLowerCase();
   const scope = scopeParam || 'products';
+  const debugEnabled = isDebugUploads(request, env);
 
   const respondError = (options: {
     code:
@@ -118,15 +215,6 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
     status: number;
     error?: unknown;
   }) => {
-    const debug = {
-      hasBucketIMAGES: !!env.IMAGES_BUCKET,
-      hasBucketMV: !!env.MV_IMAGES,
-      hasPublicBaseUrl: !!env.PUBLIC_IMAGES_BASE_URL,
-      hasDB: !!env.DB,
-      publicBaseUrlPreview: env.PUBLIC_IMAGES_BASE_URL ? env.PUBLIC_IMAGES_BASE_URL.slice(0, 30) : null,
-      publicBaseUrlLength: env.PUBLIC_IMAGES_BASE_URL ? env.PUBLIC_IMAGES_BASE_URL.length : 0,
-      contentType,
-    };
     const errorObj =
       options.error instanceof Error
         ? { message: options.error.message, stack: options.error.stack || null }
@@ -139,10 +227,10 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
       scope,
       method: request.method,
       env: {
-        hasBucketIMAGES: debug.hasBucketIMAGES,
-        hasBucketMV: debug.hasBucketMV,
-        hasPublicBaseUrl: debug.hasPublicBaseUrl,
-        hasDB: debug.hasDB,
+        hasBucketIMAGES: !!env.IMAGES_BUCKET,
+        hasBucketMV: !!env.MV_IMAGES,
+        hasPublicBaseUrl: !!env.PUBLIC_IMAGES_BASE_URL,
+        hasDB: !!env.DB,
       },
       error: errorObj,
     });
@@ -154,7 +242,7 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
         message: options.message,
         rid,
         scope,
-        debug,
+        ...(debugEnabled ? buildDebugFields(request, contentType, contentLength) : {}),
       }),
       options.status,
       corsHeaders()
@@ -358,6 +446,9 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
         sourceImageId: sourceImageId || null,
       },
     });
+    if (debugEnabled) {
+      Object.assign(responsePayload, buildDebugFields(request, contentType, contentLength));
+    }
     if (insertFailed) {
       responsePayload.warning = 'D1_INSERT_FAILED';
     }

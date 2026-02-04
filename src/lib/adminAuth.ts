@@ -1,3 +1,6 @@
+import { debugUploadsEnabled } from './debugUploads';
+import { recordAdminAuthSnapshot } from './uploadDebugStore';
+
 export type AdminAuthStatus = {
   envHasAdminPassword: boolean;
   envAdminPasswordLength: number;
@@ -20,6 +23,18 @@ export function getStoredAdminPassword(): string {
   }
 }
 
+export function getAdminPasswordLengthSafe(): number {
+  try {
+    return (localStorage.getItem(ADMIN_PASSWORD_KEY) || '').length;
+  } catch {
+    return 0;
+  }
+}
+
+export function hasAdminPasswordInStorage(): boolean {
+  return getAdminPasswordLengthSafe() > 0;
+}
+
 export function setStoredAdminPassword(password: string): void {
   try {
     localStorage.setItem(ADMIN_PASSWORD_KEY, password);
@@ -39,7 +54,25 @@ export function clearStoredAdminPassword(): void {
 export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const password = getStoredAdminPassword();
   const url = input instanceof Request ? input.url : String(input);
-  console.debug('[adminFetch]', { url, hasPw: !!password, pwLength: password.length });
+  const debugUploads = debugUploadsEnabled();
+  if (debugUploads) {
+    console.debug('[adminFetch]', { url, hasAdminPassword: !!password });
+    try {
+      const parsed = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+      if (parsed.pathname.startsWith('/api/admin')) {
+        recordAdminAuthSnapshot({
+          timestamp: new Date().toISOString(),
+          urlPath: parsed.pathname,
+          method: (init.method || (input instanceof Request ? input.method : 'GET') || 'GET').toUpperCase(),
+          adminHeaderAttached: !!password,
+          origin: typeof window !== 'undefined' ? window.location.origin : '',
+          host: typeof window !== 'undefined' ? window.location.host : '',
+        });
+      }
+    } catch {
+      // ignore debug snapshot failures
+    }
+  }
   if (!password) {
     throw new Error('Missing admin password; please log in again.');
   }

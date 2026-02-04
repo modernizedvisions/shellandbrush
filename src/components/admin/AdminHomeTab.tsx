@@ -4,6 +4,7 @@ import type { HeroCollageImage } from '../../lib/types';
 import { AdminSectionHeader } from './AdminSectionHeader';
 import { adminUploadImage } from '../../lib/api';
 import { AdminSaveButton } from './AdminSaveButton';
+import { debugUploadsEnabled, formatUploadDebugError } from '../../lib/debugUploads';
 
 const isBlockedImageUrl = (value?: string) => {
   if (!value) return false;
@@ -57,6 +58,7 @@ function HeroCollageAdmin({
   saveState,
   saveError,
 }: HeroCollageAdminProps) {
+  const debugUploads = debugUploadsEnabled();
   const slots = [0];
   const hasUploads = images.some((img) => img?.uploading);
   const hasBlocked = images.some((img) => isBlockedImageUrl(img?.imageUrl));
@@ -103,10 +105,15 @@ function HeroCollageAdmin({
         })
       );
     } catch (err) {
+      const message = debugUploads
+        ? formatUploadDebugError(err)
+        : err instanceof Error
+          ? err.message
+          : 'Upload failed';
       onChange(
         buildNext({
           uploading: false,
-          uploadError: err instanceof Error ? err.message : 'Upload failed',
+          uploadError: message,
         })
       );
     }

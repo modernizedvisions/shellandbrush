@@ -31,6 +31,7 @@ import { AdminShopTab } from '../components/admin/AdminShopTab';
 import { AdminCustomOrdersTab } from '../components/admin/AdminCustomOrdersTab';
 import { AdminPromotionsTab } from '../components/admin/AdminPromotionsTab';
 import { AdminEmailListTab } from '../components/admin/AdminEmailListTab';
+import { AdminUploadDiagnosticsPanel } from '../components/admin/AdminUploadDiagnosticsPanel';
 import { OrderDetailsModal } from '../components/admin/OrderDetailsModal';
 import {
   getAdminCustomOrders,
@@ -39,6 +40,7 @@ import {
   archiveAdminCustomOrder,
 } from '../lib/db/customOrders';
 import type { AdminCustomOrder } from '../lib/db/customOrders';
+import { debugUploadsEnabled, formatUploadDebugError } from '../lib/debugUploads';
 
 export type ProductFormState = {
   name: string;
@@ -63,6 +65,7 @@ export type ShopImage = {
   isNew?: boolean;
   uploading?: boolean;
   uploadError?: string;
+  errorMessage?: string;
   imageId?: string;
   previewUrl?: string;
   needsMigration?: boolean;
@@ -129,6 +132,16 @@ export function AdminPage() {
   const [customOrderDraft, setCustomOrderDraft] = useState<any>(null);
   const [customOrdersError, setCustomOrdersError] = useState<string | null>(null);
   const [isLoadingCustomOrders, setIsLoadingCustomOrders] = useState(false);
+  const debugUploads = debugUploadsEnabled();
+  const logUploadDebug = (...args: unknown[]) => {
+    if (debugUploads) console.debug(...args);
+  };
+  const logUploadError = (...args: unknown[]) => {
+    if (debugUploads) console.error(...args);
+  };
+  const logUploadInfo = (...args: unknown[]) => {
+    if (debugUploads) console.log(...args);
+  };
 
   const filteredOrders = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -372,7 +385,7 @@ export function AdminPage() {
     previewUrl: string,
     setImages: React.Dispatch<React.SetStateAction<ManagedImage[]>>
   ) => {
-    console.debug('[shop images] upload start', {
+    logUploadDebug('[shop images] upload start', {
       id,
       name: file.name,
       size: file.size,
@@ -385,6 +398,7 @@ export function AdminPage() {
               ...img,
               uploading: true,
               uploadError: undefined,
+              ...(debugUploads ? { errorMessage: undefined } : {}),
             }
           : img
       )
@@ -403,18 +417,20 @@ export function AdminPage() {
                 uploading: false,
                 uploadError: undefined,
                 previewUrl: undefined,
+                ...(debugUploads ? { errorMessage: undefined } : {}),
               }
             : img
         )
       );
-      console.debug('[shop images] upload success', {
+      logUploadDebug('[shop images] upload success', {
         id,
         name: file.name,
         url: result.url,
       });
       return result;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Upload failed';
+      const message = debugUploads ? formatUploadDebugError(err) : (err instanceof Error ? err.message : 'Upload failed');
+      const debugMessage = debugUploads ? formatUploadDebugError(err) : undefined;
       setImages((prev) =>
         prev.map((img) =>
           img.id === id
@@ -422,11 +438,12 @@ export function AdminPage() {
                 ...img,
                 uploading: false,
                 uploadError: message,
+                ...(debugUploads ? { errorMessage: debugMessage } : {}),
               }
             : img
         )
       );
-      console.debug('[shop images] upload failure', {
+      logUploadDebug('[shop images] upload failure', {
         id,
         name: file.name,
         error: err instanceof Error ? err.message : String(err),
@@ -443,7 +460,7 @@ export function AdminPage() {
             : img
         )
       );
-      console.debug('[shop images] upload finally', { id, name: file.name });
+      logUploadDebug('[shop images] upload finally', { id, name: file.name });
     }
   };
 
@@ -456,7 +473,7 @@ export function AdminPage() {
     const incoming = [...files];
     const uploads: Array<{ id: string; file: File; previewUrl: string }> = [];
 
-    console.debug('[shop images] batch start', { count: incoming.length, slotIndex });
+    logUploadDebug('[shop images] batch start', { count: incoming.length, slotIndex });
 
     setImages((prev) => {
       const maxSlots = 4;
@@ -514,7 +531,7 @@ export function AdminPage() {
       return result;
     });
 
-    console.debug('[shop images] batch slots', {
+    logUploadDebug('[shop images] batch slots', {
       count: uploads.length,
       ids: uploads.map((u) => u.id),
       names: uploads.map((u) => u.file.name),
@@ -527,7 +544,7 @@ export function AdminPage() {
 
       for (const { id, file, previewUrl } of uploads) {
         attempted += 1;
-        console.debug('[shop images] uploading', {
+        logUploadDebug('[shop images] uploading', {
           attempted,
           name: file.name,
           size: file.size,
@@ -535,17 +552,17 @@ export function AdminPage() {
         });
         try {
           const result = await uploadManagedImage(id, file, previewUrl, setImages);
-          console.debug('[shop images] upload success', {
+          logUploadDebug('[shop images] upload success', {
             name: file.name,
             id: result.id,
             url: result.url,
           });
-          console.debug('[shop images] settled', { name: file.name, ok: true, urlOrError: result.url });
+          logUploadDebug('[shop images] settled', { name: file.name, ok: true, urlOrError: result.url });
           succeeded += 1;
         } catch (err) {
           failed += 1;
-          console.error('[shop images] upload error', { name: file.name, err });
-          console.debug('[shop images] settled', {
+          logUploadError('[shop images] upload error', { name: file.name, err });
+          logUploadDebug('[shop images] settled', {
             name: file.name,
             ok: false,
             urlOrError: err instanceof Error ? err.message : String(err),
@@ -557,19 +574,24 @@ export function AdminPage() {
       setImages((prev) => {
         const next = prev.map((img) => {
           if (!img.uploading) return img;
-  const hasFinalUrl = !!img.url && !isBlockedImageUrl(img.url);
+          const hasFinalUrl = !!img.url && !isBlockedImageUrl(img.url);
           const hasError = !!img.uploadError;
           if (!hasFinalUrl && !hasError) {
             return {
               ...img,
               uploading: false,
               uploadError: 'Upload did not complete. Please retry or remove.',
+              ...(debugUploads
+                ? {
+                    errorMessage: formatUploadDebugError(new Error('Upload did not complete.')),
+                  }
+                : {}),
             };
           }
           return { ...img, uploading: false };
         });
         uploadingCountAfter = next.filter((img) => img.uploading).length;
-        console.log(
+        logUploadInfo(
           '[shop images] post-reconcile',
           next.map((img) => ({
             id: img.id,
@@ -582,7 +604,7 @@ export function AdminPage() {
         );
         return next;
       });
-      console.debug('[shop images] batch done', { attempted, succeeded, failed, uploadingCountAfter });
+      logUploadDebug('[shop images] batch done', { attempted, succeeded, failed, uploadingCountAfter });
     };
 
     void runUploads();
@@ -1241,6 +1263,8 @@ export function AdminPage() {
             />
           </div>
         )}
+
+        <AdminUploadDiagnosticsPanel />
       </div>
     </div>
 

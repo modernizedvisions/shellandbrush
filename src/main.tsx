@@ -7,6 +7,7 @@ import { ShopPage } from './pages/ShopPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { RouteFallback } from './components/RouteFallback';
 import { Toaster } from 'sonner';
+import { installDebugFetchLogger } from './lib/debugFetchLogger';
 import './index.css';
 
 const ProductDetailPage = lazy(() =>
@@ -30,6 +31,8 @@ const EmailListPage = lazy(() =>
 const AdminPage = lazy(() =>
   import('./pages/AdminPage').then((m) => ({ default: m.AdminPage }))
 );
+
+installDebugFetchLogger();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

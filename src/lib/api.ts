@@ -20,9 +20,11 @@ import { getReviewsForProduct } from './db/reviews';
 import { createEmbeddedCheckoutSession, fetchCheckoutSession } from './payments/checkout';
 import { sendContactEmail } from './contact';
 import { verifyAdminPassword } from './auth';
-import { adminFetch, getStoredAdminPassword } from './adminAuth';
+import { adminFetch, hasAdminPasswordInStorage } from './adminAuth';
 import type { Category, EmailListSignup } from './types';
 import { createWebpVariant } from './imageVariants';
+import { debugUploadsEnabled, truncate } from './debugUploads';
+import { recordUploadAttempt } from './uploadDebugStore';
 
 // Aggregates the mock data layer and stubs so the UI can continue working while we
 // prepare for Cloudflare D1 + Stripe with the site/admin as the source of truth.
@@ -192,6 +194,17 @@ export type AdminUploadOptions = {
   sortOrder?: number;
 };
 
+type PreflightProbeResult = {
+  attempted: boolean;
+  status?: number | null;
+  ok?: boolean | null;
+  responseText?: string | null;
+  error?: string | null;
+};
+
+let uploadPreflightProbeDone = false;
+let uploadPreflightProbeResult: PreflightProbeResult | null = null;
+
 export async function adminUploadImage(
   file: File,
   options: AdminUploadOptions = {}
@@ -199,12 +212,51 @@ export async function adminUploadImage(
   id: string;
   url: string;
 }> {
+  const debugUploads = debugUploadsEnabled();
   const rid = crypto.randomUUID();
   const query = new URLSearchParams({ rid });
   if (options.scope) query.set('scope', options.scope);
+  if (debugUploads) query.set('debug', '1');
   const url = `/api/admin/images/upload?${query.toString()}`;
+  const parsedUrl = typeof window !== 'undefined'
+    ? new URL(url, window.location.origin)
+    : null;
+  const requestUrl = parsedUrl ? parsedUrl.toString() : url;
+  const requestPath = parsedUrl ? `${parsedUrl.pathname}${parsedUrl.search}` : url;
   const method = 'POST';
-  const pw = getStoredAdminPassword();
+  const adminHeaderPresent = hasAdminPasswordInStorage();
+  const logDebug = (...args: unknown[]) => {
+    if (debugUploads) console.debug(...args);
+  };
+  const logWarn = (...args: unknown[]) => {
+    if (debugUploads) console.warn(...args);
+  };
+
+  if (debugUploads && !uploadPreflightProbeDone) {
+    uploadPreflightProbeDone = true;
+    try {
+      const probeResponse = await fetch(url, { method: 'OPTIONS' });
+      const probeText = await probeResponse.text().catch(() => '');
+      uploadPreflightProbeResult = {
+        attempted: true,
+        status: probeResponse.status,
+        ok: probeResponse.ok,
+        responseText: truncate(probeText),
+      };
+      logDebug('[admin image upload] preflight probe', {
+        status: probeResponse.status,
+        ok: probeResponse.ok,
+      });
+    } catch (err) {
+      uploadPreflightProbeResult = {
+        attempted: true,
+        status: null,
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+      logWarn('[admin image upload] preflight probe failed', uploadPreflightProbeResult.error);
+    }
+  }
 
   const uploadSingle = async (
     uploadFile: File,
@@ -226,50 +278,162 @@ export async function adminUploadImage(
     }
     Object.entries(extraFields).forEach(([key, value]) => form.append(key, value));
 
-    console.debug('[admin image upload] request', {
+    logDebug('[admin image upload] request', {
       rid,
       scope: options.scope || 'products',
       url,
       method,
+      adminHeaderPresent,
       bodyIsFormData: form instanceof FormData,
       fileCount: 1,
       fileSizes: [uploadFile.size],
       fileName: uploadFile.name,
       fileType: uploadFile.type,
-      pwLength: pw.length,
       variant: extraFields.variant || null,
       sourceImageId: extraFields.sourceImageId || null,
     });
 
-    const response = await adminFetch(url, {
-      method,
-      headers: { 'X-Upload-Request-Id': rid },
-      body: form,
-    });
+    let response: Response;
+    try {
+      response = await adminFetch(url, {
+        method,
+        headers: { 'X-Upload-Request-Id': rid },
+        body: form,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const errorName = err instanceof Error ? err.name : null;
+      const messageWithHint = errorName === 'AbortError' ? `AbortError: ${message}` : message;
+      logDebug('[admin image upload] fetch error', {
+        rid,
+        url,
+        adminHeaderPresent,
+        fileName: uploadFile.name,
+        fileSize: uploadFile.size,
+        fileType: uploadFile.type,
+        error: message,
+      });
+      const error = err instanceof Error ? err : new Error(message);
+      (error as Error & { debug?: Record<string, unknown> }).debug = {
+        status: null,
+        statusText: null,
+        responseText: null,
+        url,
+        adminHeaderPresent,
+        fileName: uploadFile.name,
+        fileSize: uploadFile.size,
+        fileType: uploadFile.type,
+      };
+      if (extraFields.variant === 'original') {
+        recordUploadAttempt({
+          requestId: rid,
+          timestamp: new Date().toISOString(),
+          fileName: uploadFile.name,
+          fileSize: uploadFile.size,
+          fileType: uploadFile.type || '',
+          requestPath,
+          requestUrl,
+          adminHeaderAttached: adminHeaderPresent,
+          responseStatus: null,
+          responseText: null,
+          errorName,
+          errorMessage: truncate(messageWithHint),
+          preflight: uploadPreflightProbeResult || { attempted: false },
+        });
+      }
+      throw error;
+    }
 
-    const responseText = await response.text();
-    console.debug('[admin image upload] response', {
+    const responseText = await response.text().catch(() => '');
+    const responseSnippet = truncate(responseText);
+    logDebug('[admin image upload] response', {
       rid,
       status: response.status,
-      body: responseText,
+      statusText: response.statusText,
+      bodySnippet: responseSnippet,
     });
 
     if (!response.ok) {
-      const trimmed = responseText.length > 1000 ? `${responseText.slice(0, 1000)}...` : responseText;
-      console.error('[admin image upload] non-2xx', {
+      const error = new Error(
+        debugUploads
+          ? `Upload failed (${response.status} ${response.statusText || 'Error'}).`
+          : `Upload failed (${response.status}).`
+      );
+      (error as Error & { debug?: Record<string, unknown> }).debug = {
         status: response.status,
+        statusText: response.statusText,
+        responseText: responseSnippet,
         url,
-        text: trimmed,
+        adminHeaderPresent,
+        fileName: uploadFile.name,
+        fileSize: uploadFile.size,
+        fileType: uploadFile.type,
+      };
+      logDebug('[admin image upload] non-2xx', {
+        status: response.status,
+        statusText: response.statusText,
+        url,
+        adminHeaderPresent,
+        bodySnippet: responseSnippet,
       });
-      throw new Error(`Upload failed (${response.status}). See console for details. Server: ${trimmed}`);
+      if (extraFields.variant === 'original') {
+        recordUploadAttempt({
+          requestId: rid,
+          timestamp: new Date().toISOString(),
+          fileName: uploadFile.name,
+          fileSize: uploadFile.size,
+          fileType: uploadFile.type || '',
+          requestPath,
+          requestUrl,
+          adminHeaderAttached: adminHeaderPresent,
+          responseStatus: response.status,
+          responseText: responseSnippet,
+          errorName: 'HttpError',
+          errorMessage: truncate(error.message),
+          preflight: uploadPreflightProbeResult || { attempted: false },
+        });
+      }
+      throw error;
     }
 
     let data: any = null;
     try {
       data = responseText ? JSON.parse(responseText) : null;
     } catch (err) {
-      console.error('[admin image upload] invalid json', { status: response.status, url, text: responseText });
-      throw new Error(`Upload failed (${response.status}). See console for details. Server: invalid-json`);
+      logDebug('[admin image upload] invalid json', { status: response.status, url });
+      if (extraFields.variant === 'original') {
+        recordUploadAttempt({
+          requestId: rid,
+          timestamp: new Date().toISOString(),
+          fileName: uploadFile.name,
+          fileSize: uploadFile.size,
+          fileType: uploadFile.type || '',
+          requestPath,
+          requestUrl,
+          adminHeaderAttached: adminHeaderPresent,
+          responseStatus: response.status,
+          responseText: responseSnippet,
+          errorName: err instanceof Error ? err.name : 'InvalidJson',
+          errorMessage: truncate(err instanceof Error ? err.message : 'Invalid JSON'),
+          preflight: uploadPreflightProbeResult || { attempted: false },
+        });
+      }
+      const error = new Error(
+        debugUploads
+          ? `Upload failed (${response.status}). Server: invalid-json.`
+          : `Upload failed (${response.status}).`
+      );
+      (error as Error & { debug?: Record<string, unknown> }).debug = {
+        status: response.status,
+        statusText: response.statusText,
+        responseText: responseSnippet,
+        url,
+        adminHeaderPresent,
+        fileName: uploadFile.name,
+        fileSize: uploadFile.size,
+        fileType: uploadFile.type,
+      };
+      throw error;
     }
     const normalizedId =
       (typeof data?.image?.id === 'string' && data.image.id) ||
@@ -282,7 +446,50 @@ export async function adminUploadImage(
       '';
 
     if (!normalizedId || !normalizedUrl) {
-      throw new Error(`Image upload failed rid=${rid} status=${response.status} body=missing-fields`);
+      if (extraFields.variant === 'original') {
+        recordUploadAttempt({
+          requestId: rid,
+          timestamp: new Date().toISOString(),
+          fileName: uploadFile.name,
+          fileSize: uploadFile.size,
+          fileType: uploadFile.type || '',
+          requestPath,
+          requestUrl,
+          adminHeaderAttached: adminHeaderPresent,
+          responseStatus: response.status,
+          responseText: responseSnippet,
+          errorName: 'MissingFields',
+          errorMessage: truncate('Upload succeeded but response missing id/url'),
+          preflight: uploadPreflightProbeResult || { attempted: false },
+        });
+      }
+      const error = new Error(`Image upload failed rid=${rid} status=${response.status} body=missing-fields`);
+      (error as Error & { debug?: Record<string, unknown> }).debug = {
+        status: response.status,
+        statusText: response.statusText,
+        responseText: responseSnippet,
+        url,
+        adminHeaderPresent,
+        fileName: uploadFile.name,
+        fileSize: uploadFile.size,
+        fileType: uploadFile.type,
+      };
+      throw error;
+    }
+    if (extraFields.variant === 'original') {
+      recordUploadAttempt({
+        requestId: rid,
+        timestamp: new Date().toISOString(),
+        fileName: uploadFile.name,
+        fileSize: uploadFile.size,
+        fileType: uploadFile.type || '',
+        requestPath,
+        requestUrl,
+        adminHeaderAttached: adminHeaderPresent,
+        responseStatus: response.status,
+        responseText: responseSnippet,
+        preflight: uploadPreflightProbeResult || { attempted: false },
+      });
     }
     return {
       id: normalizedId,
@@ -297,7 +504,7 @@ export async function adminUploadImage(
       await uploadSingle(variantFile, { variant, sourceImageId: original.id }, false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[admin image upload] ${variant} variant upload failed`, message);
+      logWarn(`[admin image upload] ${variant} variant upload failed`, message);
     }
   };
 
@@ -306,7 +513,7 @@ export async function adminUploadImage(
     void uploadVariant(thumb, 'thumb');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn('[admin image upload] thumb variant generation failed', message);
+    logWarn('[admin image upload] thumb variant generation failed', message);
   }
 
   try {
@@ -314,7 +521,7 @@ export async function adminUploadImage(
     void uploadVariant(medium, 'medium');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn('[admin image upload] medium variant generation failed', message);
+    logWarn('[admin image upload] medium variant generation failed', message);
   }
 
   return original;

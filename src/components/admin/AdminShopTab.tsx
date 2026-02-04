@@ -7,6 +7,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { adminFetchCategories } from '../../lib/api';
 import { AdminSectionHeader } from './AdminSectionHeader';
 import { CategoryManagementModal } from './CategoryManagementModal';
+import { debugUploadsEnabled } from '../../lib/debugUploads';
 
 interface ProductAdminCardProps {
   product: Product;
@@ -215,6 +216,13 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
   const [categories, setCategories] = useState<Category[]>([]);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const maxModalImages = 4;
+  const debugUploads = debugUploadsEnabled();
+  const logUploadDebug = (...args: unknown[]) => {
+    if (debugUploads) console.debug(...args);
+  };
+  const logUploadWarn = (...args: unknown[]) => {
+    if (debugUploads) console.warn(...args);
+  };
   const isUploading = productImages.some((img) => img.uploading);
   const missingUrlCount = productImages.filter(
     (img) => !img.uploading && !img.uploadError && !!img.previewUrl && !img.url
@@ -222,7 +230,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
   const failedCount = productImages.filter((img) => img.uploadError).length;
 
   useEffect(() => {
-    console.debug('[shop save] disable check', {
+    logUploadDebug('[shop save] disable check', {
       isUploading,
       uploadingCount: productImages.filter((img) => img.uploading).length,
       missingUrlCount,
@@ -512,7 +520,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                     multiple
                     className="hidden"
                     onChange={(e) => {
-                    console.debug('[shop images] handler fired', {
+                    logUploadDebug('[shop images] handler fired', {
                       time: new Date().toISOString(),
                       hasEvent: !!e,
                       hasFiles: !!e?.target?.files,
@@ -520,12 +528,12 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                     });
                     const fileList = e?.target?.files;
                     const files = fileList ? Array.from(fileList) : [];
-                    console.debug(
+                    logUploadDebug(
                       '[shop images] files extracted',
                       files.map((f) => ({ name: f.name, size: f.size, type: f.type }))
                     );
                       if (files.length === 0) {
-                        console.warn('[shop images] no files found; aborting upload');
+                        logUploadWarn('[shop images] no files found; aborting upload');
                         if (e?.target) e.target.value = '';
                         return;
                       }
@@ -567,12 +575,12 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                           if (isUploading) return;
                           const fileList = e.dataTransfer?.files;
                           const files = Array.from(fileList ?? []);
-                        console.debug(
+                        logUploadDebug(
                           '[shop images] drop files extracted',
                           files.map((f) => ({ name: f.name, size: f.size, type: f.type }))
                         );
                           if (files.length === 0) {
-                            console.warn('[shop images] no files found; aborting upload');
+                            logUploadWarn('[shop images] no files found; aborting upload');
                             return;
                           }
                           onAddProductImages(files, index);
@@ -621,12 +629,12 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                           if (isUploading) return;
                           const fileList = e.dataTransfer?.files;
                           const files = fileList ? Array.from(fileList) : [];
-                        console.debug(
+                        logUploadDebug(
                           '[shop images] drop files extracted',
                           files.map((f) => ({ name: f.name, size: f.size, type: f.type }))
                         );
                           if (files.length === 0) {
-                            console.warn('[shop images] no files found; aborting upload');
+                            logUploadWarn('[shop images] no files found; aborting upload');
                             return;
                           }
                           onAddProductImages(files, index);
@@ -867,7 +875,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                     multiple
                     className="hidden"
                   onChange={(e) => {
-                      console.debug('[shop images] handler fired', {
+                      logUploadDebug('[shop images] handler fired', {
                         time: new Date().toISOString(),
                         hasEvent: !!e,
                         hasFiles: !!e?.target?.files,
@@ -875,12 +883,12 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                       });
                       const fileList = e?.target?.files;
                       const files = fileList ? Array.from(fileList) : [];
-                      console.debug(
+                      logUploadDebug(
                         '[shop images] files extracted',
                         files.map((f) => ({ name: f.name, size: f.size, type: f.type }))
                       );
                       if (files.length === 0) {
-                        console.warn('[shop images] no files found; aborting upload');
+                        logUploadWarn('[shop images] no files found; aborting upload');
                         if (e?.target) e.target.value = '';
                         return;
                       }
@@ -891,7 +899,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  {console.debug('[edit modal] render images', editImages)}
+                  {logUploadDebug('[edit modal] render images', editImages)}
                     {Array.from({ length: maxModalImages }).map((_, idx) => {
                       const image = editImages[idx];
                       if (image) {
