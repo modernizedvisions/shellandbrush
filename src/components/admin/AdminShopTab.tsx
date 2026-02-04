@@ -7,7 +7,8 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { adminFetchCategories } from '../../lib/api';
 import { AdminSectionHeader } from './AdminSectionHeader';
 import { CategoryManagementModal } from './CategoryManagementModal';
-import { debugUploadsEnabled } from '../../lib/debugUploads';
+import { debugUploadsEnabled, dlog, derr, truncate } from '../../lib/debugUploads';
+import { getTrace, trace } from '../../lib/uploadTrace';
 
 interface ProductAdminCardProps {
   product: Product;
@@ -223,11 +224,74 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
   const logUploadWarn = (...args: unknown[]) => {
     if (debugUploads) console.warn(...args);
   };
+  const fileMeta = (file: File) => ({
+    name: file.name,
+    size: file.size,
+    type: file.type,
+    lastModified: file.lastModified,
+  });
+  const logFileSelection = (step: string, files: File[], slotIndex?: number | null) => {
+    const meta = files.map(fileMeta);
+    dlog(step, { count: files.length, slotIndex: slotIndex ?? null, files: meta });
+    trace(step, { count: files.length, slotIndex: slotIndex ?? null, files: meta });
+  };
+  const handleAddProductImages = (files: File[], slotIndex?: number) => {
+    const currentCount = productImages.length;
+    dlog('onAddProductImages enter', { count: files.length, slotIndex: slotIndex ?? null, currentCount });
+    trace('onAddProductImages enter', { count: files.length, slotIndex: slotIndex ?? null, currentCount });
+    try {
+      onAddProductImages(files, slotIndex);
+      dlog('onAddProductImages exit', { count: files.length, slotIndex: slotIndex ?? null, currentCount });
+      trace('onAddProductImages exit', { count: files.length, slotIndex: slotIndex ?? null, currentCount });
+    } catch (err) {
+      const errorName = err instanceof Error ? err.name : 'Error';
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorStack = err instanceof Error && err.stack ? truncate(err.stack) : undefined;
+      derr('onAddProductImages threw', errorName, errorMessage, errorStack);
+      trace('onAddProductImages threw', { errorName, errorMessage, errorStack });
+      throw err;
+    }
+  };
+  const handleAddEditProductImages = (files: File[], slotIndex?: number) => {
+    const currentCount = editImages.length;
+    dlog('onAddEditProductImages enter', { count: files.length, slotIndex: slotIndex ?? null, currentCount });
+    trace('onAddEditProductImages enter', { count: files.length, slotIndex: slotIndex ?? null, currentCount });
+    try {
+      onAddEditProductImages(files, slotIndex);
+      dlog('onAddEditProductImages exit', { count: files.length, slotIndex: slotIndex ?? null, currentCount });
+      trace('onAddEditProductImages exit', { count: files.length, slotIndex: slotIndex ?? null, currentCount });
+    } catch (err) {
+      const errorName = err instanceof Error ? err.name : 'Error';
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorStack = err instanceof Error && err.stack ? truncate(err.stack) : undefined;
+      derr('onAddEditProductImages threw', errorName, errorMessage, errorStack);
+      trace('onAddEditProductImages threw', { errorName, errorMessage, errorStack });
+      throw err;
+    }
+  };
   const isUploading = productImages.some((img) => img.uploading);
   const missingUrlCount = productImages.filter(
     (img) => !img.uploading && !img.uploadError && !!img.previewUrl && !img.url
   ).length;
   const failedCount = productImages.filter((img) => img.uploadError).length;
+  const traceEntries = debugUploads ? getTrace().slice(-20) : [];
+  const formatTraceDetails = (details?: Record<string, unknown>) => {
+    if (!details) return '';
+    try {
+      return truncate(JSON.stringify(details));
+    } catch {
+      return truncate(String(details));
+    }
+  };
+  const handleCopyTrace = () => {
+    const lines = getTrace()
+      .slice(-20)
+      .map((entry) => `${entry.ts} ${entry.step} ${formatTraceDetails(entry.details)}`.trim())
+      .join('\n');
+    if (navigator?.clipboard?.writeText) {
+      void navigator.clipboard.writeText(lines);
+    }
+  };
 
   useEffect(() => {
     logUploadDebug('[shop save] disable check', {
@@ -301,7 +365,13 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
 
   const handleModalFileSelect = (files: FileList | null) => {
     const list = Array.from(files ?? []);
-    onAddEditProductImages(list);
+    logFileSelection('edit modal onChange files', list, null);
+    if (list.length === 0) {
+      dlog('edit modal blocked: no files');
+      trace('edit modal blocked', { reason: 'no-files' });
+      return;
+    }
+    handleAddEditProductImages(list);
   };
 
   const handleSetPrimaryModalImage = (id: string) => {
@@ -520,28 +590,29 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                     multiple
                     className="hidden"
                     onChange={(e) => {
-                    logUploadDebug('[shop images] handler fired', {
-                      time: new Date().toISOString(),
-                      hasEvent: !!e,
-                      hasFiles: !!e?.target?.files,
-                      filesLen: e?.target?.files?.length ?? 0,
-                    });
-                    const fileList = e?.target?.files;
-                    const files = fileList ? Array.from(fileList) : [];
-                    logUploadDebug(
-                      '[shop images] files extracted',
-                      files.map((f) => ({ name: f.name, size: f.size, type: f.type }))
-                    );
+                      const fileList = e?.target?.files;
+                      const files = fileList ? Array.from(fileList) : [];
+                      logFileSelection('product input onChange files', files, activeProductSlot ?? null);
+                      logUploadDebug('[shop images] handler fired', {
+                        time: new Date().toISOString(),
+                        hasEvent: !!e,
+                        hasFiles: !!e?.target?.files,
+                        filesLen: e?.target?.files?.length ?? 0,
+                      });
                       if (files.length === 0) {
+                        dlog('product input blocked: no files');
+                        trace('product input blocked', { reason: 'no-files' });
                         logUploadWarn('[shop images] no files found; aborting upload');
                         if (e?.target) e.target.value = '';
                         return;
                       }
                       if (isUploading) {
+                        dlog('product input blocked: already uploading');
+                        trace('product input blocked', { reason: 'already-uploading' });
                         if (e?.target) e.target.value = '';
                         return;
                       }
-                      onAddProductImages(files, activeProductSlot ?? undefined);
+                      handleAddProductImages(files, activeProductSlot ?? undefined);
                       setActiveProductSlot(null);
                       if (e?.target) e.target.value = '';
                     }}
@@ -572,18 +643,21 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                       onDragOver={(e) => e.preventDefault()}
                         onDrop={(e) => {
                           e.preventDefault();
-                          if (isUploading) return;
+                          if (isUploading) {
+                            dlog('product drop blocked: already uploading', { slotIndex: index });
+                            trace('product drop blocked', { reason: 'already-uploading', slotIndex: index });
+                            return;
+                          }
                           const fileList = e.dataTransfer?.files;
                           const files = Array.from(fileList ?? []);
-                        logUploadDebug(
-                          '[shop images] drop files extracted',
-                          files.map((f) => ({ name: f.name, size: f.size, type: f.type }))
-                        );
+                          logFileSelection('product drop files', files, index);
                           if (files.length === 0) {
+                            dlog('product drop blocked: no files', { slotIndex: index });
+                            trace('product drop blocked', { reason: 'no-files', slotIndex: index });
                             logUploadWarn('[shop images] no files found; aborting upload');
                             return;
                           }
-                          onAddProductImages(files, index);
+                          handleAddProductImages(files, index);
                         }}
                         onClick={() => {
                           if (isUploading) return;
@@ -626,18 +700,21 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                       onDragOver={(e) => e.preventDefault()}
                         onDrop={(e) => {
                           e.preventDefault();
-                          if (isUploading) return;
+                          if (isUploading) {
+                            dlog('product empty drop blocked: already uploading', { slotIndex: index });
+                            trace('product empty drop blocked', { reason: 'already-uploading', slotIndex: index });
+                            return;
+                          }
                           const fileList = e.dataTransfer?.files;
                           const files = fileList ? Array.from(fileList) : [];
-                        logUploadDebug(
-                          '[shop images] drop files extracted',
-                          files.map((f) => ({ name: f.name, size: f.size, type: f.type }))
-                        );
+                          logFileSelection('product empty drop files', files, index);
                           if (files.length === 0) {
+                            dlog('product empty drop blocked: no files', { slotIndex: index });
+                            trace('product empty drop blocked', { reason: 'no-files', slotIndex: index });
                             logUploadWarn('[shop images] no files found; aborting upload');
                             return;
                           }
-                          onAddProductImages(files, index);
+                          handleAddProductImages(files, index);
                         }}
                         onClick={() => {
                           if (isUploading) return;
@@ -650,6 +727,32 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                   );
                 })}
               </div>
+              {debugUploads && (
+                <details className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-700">
+                  <summary className="cursor-pointer font-semibold">Upload Trace (Debug)</summary>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCopyTrace}
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-400"
+                    >
+                      Copy trace
+                    </button>
+                    <span className="text-[11px] text-slate-500">{traceEntries.length} entries</span>
+                  </div>
+                  <div className="mt-2 max-h-40 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px]">
+                    {traceEntries.length === 0 ? (
+                      <div className="text-slate-500">No trace entries yet.</div>
+                    ) : (
+                      traceEntries.map((entry, idx) => (
+                        <div key={`${entry.ts}-${idx}`} className="whitespace-pre-wrap break-words">
+                          {entry.ts} {entry.step} {formatTraceDetails(entry.details)}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </details>
+              )}
             </aside>
           </div>
         </form>
@@ -883,11 +986,10 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                       });
                       const fileList = e?.target?.files;
                       const files = fileList ? Array.from(fileList) : [];
-                      logUploadDebug(
-                        '[shop images] files extracted',
-                        files.map((f) => ({ name: f.name, size: f.size, type: f.type }))
-                      );
+                      logFileSelection('edit modal input onChange files', files, null);
                       if (files.length === 0) {
+                        dlog('edit modal input blocked: no files');
+                        trace('edit modal input blocked', { reason: 'no-files' });
                         logUploadWarn('[shop images] no files found; aborting upload');
                         if (e?.target) e.target.value = '';
                         return;

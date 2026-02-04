@@ -2,10 +2,20 @@ export function debugUploadsEnabled(): boolean {
   if (import.meta.env?.VITE_DEBUG_UPLOADS === 'true') return true;
   if (typeof window === 'undefined') return false;
   try {
-    return new URLSearchParams(window.location.search).get('debugUploads') === '1';
+    return new URLSearchParams(window.location.search).has('debugUploads');
   } catch {
     return false;
   }
+}
+
+export function dlog(...args: unknown[]): void {
+  if (!debugUploadsEnabled()) return;
+  console.log('[UPLOAD-DEBUG]', ...args);
+}
+
+export function derr(...args: unknown[]): void {
+  if (!debugUploadsEnabled()) return;
+  console.error('[UPLOAD-DEBUG]', ...args);
 }
 
 export function maskLen(value?: string | null): number {
@@ -13,7 +23,7 @@ export function maskLen(value?: string | null): number {
   return value.length;
 }
 
-export function truncate(value: string, max = 500): string {
+export function truncate(value: string, max = 800): string {
   if (!value) return '';
   if (value.length <= max) return value;
   return `${value.slice(0, max)}...`;

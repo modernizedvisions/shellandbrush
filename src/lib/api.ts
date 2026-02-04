@@ -23,7 +23,8 @@ import { verifyAdminPassword } from './auth';
 import { adminFetch, hasAdminPasswordInStorage } from './adminAuth';
 import type { Category, EmailListSignup } from './types';
 import { createWebpVariant } from './imageVariants';
-import { debugUploadsEnabled, truncate } from './debugUploads';
+import { debugUploadsEnabled, dlog, derr, truncate } from './debugUploads';
+import { trace } from './uploadTrace';
 import { recordUploadAttempt } from './uploadDebugStore';
 
 // Aggregates the mock data layer and stubs so the UI can continue working while we
@@ -214,6 +215,14 @@ export async function adminUploadImage(
 }> {
   const debugUploads = debugUploadsEnabled();
   const rid = crypto.randomUUID();
+  const fileMeta = {
+    name: file.name,
+    size: file.size,
+    type: file.type,
+    lastModified: file.lastModified,
+  };
+  dlog('adminUploadImage start', { rid, scope: options.scope || 'products', ...fileMeta });
+  trace('adminUploadImage start', { rid, scope: options.scope || 'products', ...fileMeta });
   const query = new URLSearchParams({ rid });
   if (options.scope) query.set('scope', options.scope);
   if (debugUploads) query.set('debug', '1');
@@ -263,6 +272,15 @@ export async function adminUploadImage(
     extraFields: Record<string, string>,
     includeMeta: boolean
   ): Promise<{ id: string; url: string }> => {
+    const uploadMeta = {
+      name: uploadFile.name,
+      size: uploadFile.size,
+      type: uploadFile.type,
+      lastModified: uploadFile.lastModified,
+      variant: extraFields.variant || 'original',
+    };
+    dlog('adminUploadImage build formdata', { rid, ...uploadMeta });
+    trace('adminUploadImage build formdata', { rid, ...uploadMeta });
     const form = new FormData();
     form.append('file', uploadFile, uploadFile.name || 'upload');
     if (includeMeta) {
@@ -295,6 +313,8 @@ export async function adminUploadImage(
 
     let response: Response;
     try {
+      dlog('adminUploadImage about to fetch', { rid, url, method, variant: extraFields.variant || 'original' });
+      trace('adminUploadImage about to fetch', { rid, url, method, variant: extraFields.variant || 'original' });
       response = await adminFetch(url, {
         method,
         headers: { 'X-Upload-Request-Id': rid },
@@ -304,6 +324,9 @@ export async function adminUploadImage(
       const message = err instanceof Error ? err.message : String(err);
       const errorName = err instanceof Error ? err.name : null;
       const messageWithHint = errorName === 'AbortError' ? `AbortError: ${message}` : message;
+      const errorStack = err instanceof Error && err.stack ? truncate(err.stack) : undefined;
+      derr('adminUploadImage fetch threw', errorName, message, errorStack);
+      trace('adminUploadImage fetch threw', { rid, errorName, message, errorStack });
       logDebug('[admin image upload] fetch error', {
         rid,
         url,
@@ -346,6 +369,8 @@ export async function adminUploadImage(
 
     const responseText = await response.text().catch(() => '');
     const responseSnippet = truncate(responseText);
+    dlog('adminUploadImage response', { rid, status: response.status, ok: response.ok });
+    trace('adminUploadImage response', { rid, status: response.status, ok: response.ok });
     logDebug('[admin image upload] response', {
       rid,
       status: response.status,
@@ -354,6 +379,18 @@ export async function adminUploadImage(
     });
 
     if (!response.ok) {
+      derr('adminUploadImage non-2xx', {
+        rid,
+        status: response.status,
+        statusText: response.statusText,
+        response: responseSnippet,
+      });
+      trace('adminUploadImage non-2xx', {
+        rid,
+        status: response.status,
+        statusText: response.statusText,
+        response: responseSnippet,
+      });
       const error = new Error(
         debugUploads
           ? `Upload failed (${response.status} ${response.statusText || 'Error'}).`
@@ -400,6 +437,16 @@ export async function adminUploadImage(
     try {
       data = responseText ? JSON.parse(responseText) : null;
     } catch (err) {
+      derr('adminUploadImage invalid json', {
+        rid,
+        status: response.status,
+        response: responseSnippet,
+      });
+      trace('adminUploadImage invalid json', {
+        rid,
+        status: response.status,
+        response: responseSnippet,
+      });
       logDebug('[admin image upload] invalid json', { status: response.status, url });
       if (extraFields.variant === 'original') {
         recordUploadAttempt({
@@ -446,6 +493,16 @@ export async function adminUploadImage(
       '';
 
     if (!normalizedId || !normalizedUrl) {
+      derr('adminUploadImage missing fields', {
+        rid,
+        status: response.status,
+        response: responseSnippet,
+      });
+      trace('adminUploadImage missing fields', {
+        rid,
+        status: response.status,
+        response: responseSnippet,
+      });
       if (extraFields.variant === 'original') {
         recordUploadAttempt({
           requestId: rid,
@@ -476,6 +533,23 @@ export async function adminUploadImage(
       };
       throw error;
     }
+    const topKeys = data && typeof data === 'object' ? Object.keys(data) : [];
+    const imageKeys =
+      data && typeof data === 'object' && data.image && typeof data.image === 'object'
+        ? Object.keys(data.image)
+        : [];
+    dlog('adminUploadImage response json', {
+      rid,
+      status: response.status,
+      keys: topKeys,
+      imageKeys,
+    });
+    trace('adminUploadImage response json', {
+      rid,
+      status: response.status,
+      keys: topKeys,
+      imageKeys,
+    });
     if (extraFields.variant === 'original') {
       recordUploadAttempt({
         requestId: rid,

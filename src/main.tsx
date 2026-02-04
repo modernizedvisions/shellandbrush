@@ -8,6 +8,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { RouteFallback } from './components/RouteFallback';
 import { Toaster } from 'sonner';
 import { installDebugFetchLogger } from './lib/debugFetchLogger';
+import { debugUploadsEnabled, derr } from './lib/debugUploads';
 import './index.css';
 
 const ProductDetailPage = lazy(() =>
@@ -31,6 +32,15 @@ const EmailListPage = lazy(() =>
 const AdminPage = lazy(() =>
   import('./pages/AdminPage').then((m) => ({ default: m.AdminPage }))
 );
+
+if (debugUploadsEnabled() && typeof window !== 'undefined') {
+  window.addEventListener('error', (event) => {
+    derr('window.error', event.message, event.filename, event.lineno, event.colno);
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    derr('unhandledrejection', String(event.reason));
+  });
+}
 
 installDebugFetchLogger();
 

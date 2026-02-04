@@ -40,7 +40,8 @@ import {
   archiveAdminCustomOrder,
 } from '../lib/db/customOrders';
 import type { AdminCustomOrder } from '../lib/db/customOrders';
-import { debugUploadsEnabled, formatUploadDebugError } from '../lib/debugUploads';
+import { debugUploadsEnabled, dlog, derr, formatUploadDebugError, truncate } from '../lib/debugUploads';
+import { trace } from '../lib/uploadTrace';
 
 export type ProductFormState = {
   name: string;
@@ -385,6 +386,14 @@ export function AdminPage() {
     previewUrl: string,
     setImages: React.Dispatch<React.SetStateAction<ManagedImage[]>>
   ) => {
+    const fileMeta = {
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      lastModified: file.lastModified,
+    };
+    dlog('uploadManagedImage start', { id, ...fileMeta });
+    trace('uploadManagedImage start', { id, ...fileMeta });
     logUploadDebug('[shop images] upload start', {
       id,
       name: file.name,
@@ -404,6 +413,8 @@ export function AdminPage() {
       )
     );
     try {
+      dlog('uploadManagedImage about to call adminUploadImage', { id, ...fileMeta });
+      trace('uploadManagedImage before adminUploadImage', { id, ...fileMeta });
       const result = await adminUploadImage(file, { scope: 'products', entityType: 'product' });
       URL.revokeObjectURL(previewUrl);
       setImages((prev) =>
@@ -429,6 +440,10 @@ export function AdminPage() {
       });
       return result;
     } catch (err) {
+      const errorName = err instanceof Error ? err.name : 'Error';
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      dlog('uploadManagedImage error', { id, errorName, errorMessage });
+      trace('uploadManagedImage error', { id, errorName, errorMessage });
       const message = debugUploads ? formatUploadDebugError(err) : (err instanceof Error ? err.message : 'Upload failed');
       const debugMessage = debugUploads ? formatUploadDebugError(err) : undefined;
       setImages((prev) =>
@@ -469,145 +484,206 @@ export function AdminPage() {
     setImages: React.Dispatch<React.SetStateAction<ManagedImage[]>>,
     slotIndex?: number
   ) => {
-    if (!files.length) return;
-    const incoming = [...files];
-    const uploads: Array<{ id: string; file: File; previewUrl: string }> = [];
-
-    logUploadDebug('[shop images] batch start', { count: incoming.length, slotIndex });
-
-    setImages((prev) => {
-      const maxSlots = 4;
-      const selected = incoming.slice(0, maxSlots);
-      let result = [...prev];
-
-      // If a slot index is provided, replace starting at that slot.
-      if (slotIndex !== undefined && slotIndex !== null && slotIndex >= 0) {
-        const start = Math.min(slotIndex, maxSlots - 1);
-        selected.forEach((file, offset) => {
-          const pos = Math.min(start + offset, maxSlots - 1);
-          const previewUrl = URL.createObjectURL(file);
-          const id = crypto.randomUUID();
-          uploads.push({ id, file, previewUrl });
-          const newEntry: ManagedImage = {
-            id,
-            url: previewUrl,
-            previewUrl,
-            file,
-            isPrimary: false,
-            isNew: true,
-            uploading: true,
-          };
-          result[pos] = newEntry;
-        });
-      } else {
-        // Default behavior: append into remaining slots
-        const remaining = Math.max(0, maxSlots - result.length);
-        if (remaining === 0) return result;
-        const toAdd = selected.slice(0, remaining).map((file) => {
-          const previewUrl = URL.createObjectURL(file);
-          const id = crypto.randomUUID();
-          uploads.push({ id, file, previewUrl });
-          return {
-            id,
-            url: previewUrl,
-            previewUrl,
-            file,
-            isPrimary: false,
-            isNew: true,
-            uploading: true,
-          } as ManagedImage;
-        });
-        result = [...result, ...toAdd];
+    const runAddImages = async () => {
+      if (!files.length) {
+        dlog('addImages blocked: no files');
+        trace('addImages blocked', { reason: 'no-files' });
+        return;
       }
+      const incoming = [...files];
+      const uploads: Array<{ id: string; file: File; previewUrl: string }> = [];
 
-      // Limit to 4 slots
-      result = result.slice(0, maxSlots);
+      dlog('addImages start', { count: incoming.length, slotIndex });
+      trace('addImages start', { count: incoming.length, slotIndex });
+      logUploadDebug('[shop images] batch start', { count: incoming.length, slotIndex });
 
-      // Ensure there is a primary image
-      if (!result.some((img) => img?.isPrimary) && result.length > 0) {
-        result[0].isPrimary = true;
-      }
-
-      return result;
-    });
-
-    logUploadDebug('[shop images] batch slots', {
-      count: uploads.length,
-      ids: uploads.map((u) => u.id),
-      names: uploads.map((u) => u.file.name),
-    });
-
-    const runUploads = async () => {
-      let attempted = 0;
-      let succeeded = 0;
-      let failed = 0;
-
-      for (const { id, file, previewUrl } of uploads) {
-        attempted += 1;
-        logUploadDebug('[shop images] uploading', {
-          attempted,
-          name: file.name,
-          size: file.size,
-          type: file.type,
-        });
-        try {
-          const result = await uploadManagedImage(id, file, previewUrl, setImages);
-          logUploadDebug('[shop images] upload success', {
-            name: file.name,
-            id: result.id,
-            url: result.url,
-          });
-          logUploadDebug('[shop images] settled', { name: file.name, ok: true, urlOrError: result.url });
-          succeeded += 1;
-        } catch (err) {
-          failed += 1;
-          logUploadError('[shop images] upload error', { name: file.name, err });
-          logUploadDebug('[shop images] settled', {
-            name: file.name,
-            ok: false,
-            urlOrError: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-
-      let uploadingCountAfter = 0;
       setImages((prev) => {
-        const next = prev.map((img) => {
-          if (!img.uploading) return img;
-          const hasFinalUrl = !!img.url && !isBlockedImageUrl(img.url);
-          const hasError = !!img.uploadError;
-          if (!hasFinalUrl && !hasError) {
-            return {
-              ...img,
-              uploading: false,
-              uploadError: 'Upload did not complete. Please retry or remove.',
-              ...(debugUploads
-                ? {
-                    errorMessage: formatUploadDebugError(new Error('Upload did not complete.')),
-                  }
-                : {}),
+        const maxSlots = 4;
+        const selected = incoming.slice(0, maxSlots);
+        let result = [...prev];
+
+        // If a slot index is provided, replace starting at that slot.
+        if (slotIndex !== undefined && slotIndex !== null && slotIndex >= 0) {
+          const start = Math.min(slotIndex, maxSlots - 1);
+          selected.forEach((file, offset) => {
+            const pos = Math.min(start + offset, maxSlots - 1);
+            const meta = {
+              name: file.name,
+              size: file.size,
+              type: file.type,
+              lastModified: file.lastModified,
             };
+            dlog('addImages createObjectURL', meta);
+            trace('addImages createObjectURL', meta);
+            const previewUrl = URL.createObjectURL(file);
+            dlog('addImages blob created', { previewUrl });
+            trace('addImages blob created', { previewUrl });
+            const id = crypto.randomUUID();
+            uploads.push({ id, file, previewUrl });
+            const newEntry: ManagedImage = {
+              id,
+              url: previewUrl,
+              previewUrl,
+              file,
+              isPrimary: false,
+              isNew: true,
+              uploading: true,
+            };
+            result[pos] = newEntry;
+          });
+        } else {
+          // Default behavior: append into remaining slots
+          const remaining = Math.max(0, maxSlots - result.length);
+          if (remaining === 0) {
+            dlog('addImages blocked: max 4 images', { currentCount: result.length });
+            trace('addImages blocked', { reason: 'max-slots', currentCount: result.length });
+            return result;
           }
-          return { ...img, uploading: false };
-        });
-        uploadingCountAfter = next.filter((img) => img.uploading).length;
-        logUploadInfo(
-          '[shop images] post-reconcile',
-          next.map((img) => ({
-            id: img.id,
-            uploading: img.uploading,
-            hasFile: !!img.file,
-            hasUrl: !!img.url,
-            hasError: !!img.uploadError,
-            urlPrefix: img.url?.slice(0, 40),
-          }))
-        );
-        return next;
+          const toAdd = selected.slice(0, remaining).map((file) => {
+            const meta = {
+              name: file.name,
+              size: file.size,
+              type: file.type,
+              lastModified: file.lastModified,
+            };
+            dlog('addImages createObjectURL', meta);
+            trace('addImages createObjectURL', meta);
+            const previewUrl = URL.createObjectURL(file);
+            dlog('addImages blob created', { previewUrl });
+            trace('addImages blob created', { previewUrl });
+            const id = crypto.randomUUID();
+            uploads.push({ id, file, previewUrl });
+            return {
+              id,
+              url: previewUrl,
+              previewUrl,
+              file,
+              isPrimary: false,
+              isNew: true,
+              uploading: true,
+            } as ManagedImage;
+          });
+          result = [...result, ...toAdd];
+        }
+
+        // Limit to 4 slots
+        result = result.slice(0, maxSlots);
+
+        // Ensure there is a primary image
+        if (!result.some((img) => img?.isPrimary) && result.length > 0) {
+          result[0].isPrimary = true;
+        }
+
+        return result;
       });
-      logUploadDebug('[shop images] batch done', { attempted, succeeded, failed, uploadingCountAfter });
+
+      dlog('addImages batch slots', {
+        count: uploads.length,
+        ids: uploads.map((u) => u.id),
+        names: uploads.map((u) => u.file.name),
+      });
+      trace('addImages batch slots', {
+        count: uploads.length,
+        ids: uploads.map((u) => u.id),
+        names: uploads.map((u) => u.file.name),
+      });
+
+      logUploadDebug('[shop images] batch slots', {
+        count: uploads.length,
+        ids: uploads.map((u) => u.id),
+        names: uploads.map((u) => u.file.name),
+      });
+
+      const runUploads = async () => {
+        let attempted = 0;
+        let succeeded = 0;
+        let failed = 0;
+
+        for (const { id, file, previewUrl } of uploads) {
+          attempted += 1;
+          logUploadDebug('[shop images] uploading', {
+            attempted,
+            name: file.name,
+            size: file.size,
+            type: file.type,
+          });
+          try {
+            const result = await uploadManagedImage(id, file, previewUrl, setImages);
+            logUploadDebug('[shop images] upload success', {
+              name: file.name,
+              id: result.id,
+              url: result.url,
+            });
+            logUploadDebug('[shop images] settled', { name: file.name, ok: true, urlOrError: result.url });
+            succeeded += 1;
+          } catch (err) {
+            failed += 1;
+            logUploadError('[shop images] upload error', { name: file.name, err });
+            logUploadDebug('[shop images] settled', {
+              name: file.name,
+              ok: false,
+              urlOrError: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
+        let uploadingCountAfter = 0;
+        setImages((prev) => {
+          const next = prev.map((img) => {
+            if (!img.uploading) return img;
+            const hasFinalUrl = !!img.url && !isBlockedImageUrl(img.url);
+            const hasError = !!img.uploadError;
+            if (!hasFinalUrl && !hasError) {
+              return {
+                ...img,
+                uploading: false,
+                uploadError: 'Upload did not complete. Please retry or remove.',
+                ...(debugUploads
+                  ? {
+                      errorMessage: formatUploadDebugError(new Error('Upload did not complete.')),
+                    }
+                  : {}),
+              };
+            }
+            return { ...img, uploading: false };
+          });
+          uploadingCountAfter = next.filter((img) => img.uploading).length;
+          logUploadInfo(
+            '[shop images] post-reconcile',
+            next.map((img) => ({
+              id: img.id,
+              uploading: img.uploading,
+              hasFile: !!img.file,
+              hasUrl: !!img.url,
+              hasError: !!img.uploadError,
+              urlPrefix: img.url?.slice(0, 40),
+            }))
+          );
+          return next;
+        });
+        logUploadDebug('[shop images] batch done', { attempted, succeeded, failed, uploadingCountAfter });
+        dlog('addImages batch done', { attempted, succeeded, failed, uploadingCountAfter });
+        trace('addImages batch done', { attempted, succeeded, failed, uploadingCountAfter });
+      };
+
+      void runUploads();
     };
 
-    void runUploads();
+    if (!debugUploads) {
+      await runAddImages();
+      return;
+    }
+
+    try {
+      await runAddImages();
+    } catch (err) {
+      const errorName = err instanceof Error ? err.name : 'Error';
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorStack = err instanceof Error && err.stack ? truncate(err.stack) : undefined;
+      derr('addImages threw', errorName, errorMessage, errorStack);
+      trace('addImages threw', { errorName, errorMessage, errorStack });
+      throw err;
+    }
   };
 
   const setPrimaryImage = (
