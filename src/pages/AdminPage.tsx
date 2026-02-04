@@ -64,8 +64,10 @@ export type ShopImage = {
   file?: File;
   isPrimary: boolean;
   isNew?: boolean;
-  uploading?: boolean;
+  uploading: boolean;
   uploadError?: string;
+  uploadToken?: string;
+  uploadStartedAt?: number;
   errorMessage?: string;
   imageId?: string;
   previewUrl?: string;
@@ -76,6 +78,13 @@ export type ShopImage = {
 export type ManagedImage = ShopImage;
 
 const normalizeCategoryValue = (value: string | undefined | null) => (value || '').trim();
+const createUploadToken = () => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `upload_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+};
+const UPLOAD_FAILED_MESSAGE = 'Upload failed. Please retry or remove.';
 
 const initialProductForm: ProductFormState = {
   name: '',
@@ -384,6 +393,8 @@ export function AdminPage() {
     id: string,
     file: File,
     previewUrl: string,
+    uploadToken: string,
+    uploadStartedAt: number,
     setImages: React.Dispatch<React.SetStateAction<ManagedImage[]>>
   ) => {
     const fileMeta = {
@@ -402,16 +413,18 @@ export function AdminPage() {
     });
     setImages((prev) =>
       prev.map((img) =>
-        img.id === id
-          ? {
-              ...img,
-              uploading: true,
-              uploadError: undefined,
-              ...(debugUploads ? { errorMessage: undefined } : {}),
-            }
-          : img
-      )
-    );
+        img.id === id && (!img.uploadToken || img.uploadToken === uploadToken)
+            ? {
+                ...img,
+                uploading: true,
+                uploadError: undefined,
+                uploadToken,
+                uploadStartedAt,
+                errorMessage: undefined,
+              }
+            : img
+        )
+      );
     try {
       dlog('uploadManagedImage about to call adminUploadImage', { id, ...fileMeta });
       trace('uploadManagedImage before adminUploadImage', { id, ...fileMeta });
@@ -419,7 +432,7 @@ export function AdminPage() {
       URL.revokeObjectURL(previewUrl);
       setImages((prev) =>
         prev.map((img) =>
-          img.id === id
+          img.id === id && img.uploadToken === uploadToken
             ? {
                 ...img,
                 url: result.url,
@@ -428,7 +441,7 @@ export function AdminPage() {
                 uploading: false,
                 uploadError: undefined,
                 previewUrl: undefined,
-                ...(debugUploads ? { errorMessage: undefined } : {}),
+                errorMessage: undefined,
               }
             : img
         )
@@ -444,16 +457,18 @@ export function AdminPage() {
       const errorMessage = err instanceof Error ? err.message : String(err);
       dlog('uploadManagedImage error', { id, errorName, errorMessage });
       trace('uploadManagedImage error', { id, errorName, errorMessage });
-      const message = debugUploads ? formatUploadDebugError(err) : (err instanceof Error ? err.message : 'Upload failed');
-      const debugMessage = debugUploads ? formatUploadDebugError(err) : undefined;
+      const message = UPLOAD_FAILED_MESSAGE;
+      const detailMessage = debugUploads
+        ? formatUploadDebugError(err)
+        : truncate(err instanceof Error ? err.message : String(err));
       setImages((prev) =>
         prev.map((img) =>
-          img.id === id
+          img.id === id && img.uploadToken === uploadToken
             ? {
                 ...img,
                 uploading: false,
                 uploadError: message,
-                ...(debugUploads ? { errorMessage: debugMessage } : {}),
+                ...(detailMessage ? { errorMessage: detailMessage } : {}),
               }
             : img
         )
@@ -467,7 +482,7 @@ export function AdminPage() {
     } finally {
       setImages((prev) =>
         prev.map((img) =>
-          img.id === id && img.uploading
+          img.id === id && img.uploadToken === uploadToken && img.uploading
             ? {
                 ...img,
                 uploading: false,
@@ -491,7 +506,8 @@ export function AdminPage() {
         return;
       }
       const incoming = [...files];
-      const uploads: Array<{ id: string; file: File; previewUrl: string }> = [];
+      const uploads: Array<{ id: string; file: File; previewUrl: string; uploadToken: string; uploadStartedAt: number }> = [];
+      const previewsToRevoke: string[] = [];
 
       dlog('addImages start', { count: incoming.length, slotIndex });
       trace('addImages start', { count: incoming.length, slotIndex });
@@ -507,6 +523,8 @@ export function AdminPage() {
           const start = Math.min(slotIndex, maxSlots - 1);
           selected.forEach((file, offset) => {
             const pos = Math.min(start + offset, maxSlots - 1);
+            const existing = result[pos];
+            if (existing?.previewUrl) previewsToRevoke.push(existing.previewUrl);
             const meta = {
               name: file.name,
               size: file.size,
@@ -519,7 +537,9 @@ export function AdminPage() {
             dlog('addImages blob created', { previewUrl });
             trace('addImages blob created', { previewUrl });
             const id = crypto.randomUUID();
-            uploads.push({ id, file, previewUrl });
+            const uploadToken = createUploadToken();
+            const uploadStartedAt = Date.now();
+            uploads.push({ id, file, previewUrl, uploadToken, uploadStartedAt });
             const newEntry: ManagedImage = {
               id,
               url: previewUrl,
@@ -528,6 +548,10 @@ export function AdminPage() {
               isPrimary: false,
               isNew: true,
               uploading: true,
+              uploadError: undefined,
+              errorMessage: undefined,
+              uploadToken,
+              uploadStartedAt,
             };
             result[pos] = newEntry;
           });
@@ -552,7 +576,9 @@ export function AdminPage() {
             dlog('addImages blob created', { previewUrl });
             trace('addImages blob created', { previewUrl });
             const id = crypto.randomUUID();
-            uploads.push({ id, file, previewUrl });
+            const uploadToken = createUploadToken();
+            const uploadStartedAt = Date.now();
+            uploads.push({ id, file, previewUrl, uploadToken, uploadStartedAt });
             return {
               id,
               url: previewUrl,
@@ -561,6 +587,10 @@ export function AdminPage() {
               isPrimary: false,
               isNew: true,
               uploading: true,
+              uploadError: undefined,
+              errorMessage: undefined,
+              uploadToken,
+              uploadStartedAt,
             } as ManagedImage;
           });
           result = [...result, ...toAdd];
@@ -576,6 +606,8 @@ export function AdminPage() {
 
         return result;
       });
+
+      previewsToRevoke.forEach((url) => URL.revokeObjectURL(url));
 
       dlog('addImages batch slots', {
         count: uploads.length,
@@ -599,7 +631,7 @@ export function AdminPage() {
         let succeeded = 0;
         let failed = 0;
 
-        for (const { id, file, previewUrl } of uploads) {
+        for (const { id, file, previewUrl, uploadToken, uploadStartedAt } of uploads) {
           attempted += 1;
           logUploadDebug('[shop images] uploading', {
             attempted,
@@ -608,7 +640,7 @@ export function AdminPage() {
             type: file.type,
           });
           try {
-            const result = await uploadManagedImage(id, file, previewUrl, setImages);
+            const result = await uploadManagedImage(id, file, previewUrl, uploadToken, uploadStartedAt, setImages);
             logUploadDebug('[shop images] upload success', {
               name: file.name,
               id: result.id,
@@ -628,8 +660,10 @@ export function AdminPage() {
         }
 
         let uploadingCountAfter = 0;
+        const batchTokens = new Set(uploads.map((upload) => upload.uploadToken));
         setImages((prev) => {
           const next = prev.map((img) => {
+            if (!img.uploadToken || !batchTokens.has(img.uploadToken)) return img;
             if (!img.uploading) return img;
             const hasFinalUrl = !!img.url && !isBlockedImageUrl(img.url);
             const hasError = !!img.uploadError;
@@ -637,12 +671,10 @@ export function AdminPage() {
               return {
                 ...img,
                 uploading: false,
-                uploadError: 'Upload did not complete. Please retry or remove.',
-                ...(debugUploads
-                  ? {
-                      errorMessage: formatUploadDebugError(new Error('Upload did not complete.')),
-                    }
-                  : {}),
+                uploadError: UPLOAD_FAILED_MESSAGE,
+                errorMessage: debugUploads
+                  ? formatUploadDebugError(new Error(UPLOAD_FAILED_MESSAGE))
+                  : UPLOAD_FAILED_MESSAGE,
               };
             }
             return { ...img, uploading: false };
@@ -714,10 +746,14 @@ export function AdminPage() {
     setImages: React.Dispatch<React.SetStateAction<ManagedImage[]>>
   ) => {
     let imageIdToDelete: string | undefined;
+    let previewToRevoke: string | undefined;
     setImages((prev) => {
       const target = prev.find((img) => img.id === id);
       if (target?.isNew && target.imageId) {
         imageIdToDelete = target.imageId;
+      }
+      if (target?.previewUrl) {
+        previewToRevoke = target.previewUrl;
       }
       const filtered = prev.filter((img) => img.id !== id);
       if (filtered.length > 0 && !filtered.some((img) => img.isPrimary)) {
@@ -725,6 +761,9 @@ export function AdminPage() {
       }
       return filtered;
     });
+    if (previewToRevoke) {
+      URL.revokeObjectURL(previewToRevoke);
+    }
     if (imageIdToDelete) {
       try {
         await adminDeleteImage(imageIdToDelete);
@@ -788,9 +827,6 @@ export function AdminPage() {
     return { imageUrl: primary, imageUrls: rest, primaryImageId, imageIds };
   };
 
-  const hasPendingUploads = (images: ManagedImage[]) => images.some((img) => img.uploading);
-  const hasUploadErrors = (images: ManagedImage[]) => images.some((img) => img.uploadError);
-
   const startEditProduct = (product: Product) => {
     console.debug('[edit modal] open', {
       productId: product?.id,
@@ -811,6 +847,11 @@ export function AdminPage() {
       imageId: imageIds[idx],
       isPrimary: idx === 0,
       isNew: false,
+      uploading: false,
+      uploadError: undefined,
+      errorMessage: undefined,
+      uploadToken: undefined,
+      uploadStartedAt: undefined,
       needsMigration: isBlockedImageUrl(url),
     }));
     console.debug('[edit modal] images hydrated', managed);
@@ -830,6 +871,9 @@ export function AdminPage() {
       (img) => !img.uploading && !img.uploadError && !!img.previewUrl && !img.url
     ).length;
     const failedCount = productImages.filter((img) => img.uploadError).length;
+    const isAnyUploading = productImages.some((img) => img.uploading);
+    const hasAnyErrors = productImages.some((img) => img.uploadError);
+    const hasAnyBlobUrls = productImages.some((img) => img.url?.startsWith('blob:'));
     console.debug('[shop save] clicked', {
       mode: 'new',
       name: productForm.name,
@@ -841,28 +885,29 @@ export function AdminPage() {
       uploadingCount,
       missingUrlCount,
       failedCount,
+      hasAnyBlobUrls,
     });
     setProductSaveState('saving');
     setProductStatus({ type: null, message: '' });
 
     try {
-      if (uploadingCount > 0) {
+      if (isAnyUploading) {
         console.debug('[shop save] blocked', { uploadingCount, missingUrlCount, failedCount });
-        setProductStatus({ type: 'error', message: 'Images are still uploading. Please wait.' });
+        setProductStatus({ type: 'error', message: 'Please wait for images to finish uploading.' });
         setProductSaveState('error');
         setTimeout(() => setProductSaveState('idle'), 1500);
         return;
       }
-      if (missingUrlCount > 0) {
-        console.debug('[shop save] blocked', { uploadingCount, missingUrlCount, failedCount });
-        setProductStatus({ type: 'error', message: 'Some images were not uploaded yet.' });
-        setProductSaveState('error');
-        setTimeout(() => setProductSaveState('idle'), 1500);
-        return;
-      }
-      if (failedCount > 0) {
+      if (hasAnyErrors) {
         console.debug('[shop save] blocked', { uploadingCount, missingUrlCount, failedCount });
         setProductStatus({ type: 'error', message: 'One or more images failed to upload.' });
+        setProductSaveState('error');
+        setTimeout(() => setProductSaveState('idle'), 1500);
+        return;
+      }
+      if (hasAnyBlobUrls || missingUrlCount > 0) {
+        console.debug('[shop save] blocked', { uploadingCount, missingUrlCount, failedCount });
+        setProductStatus({ type: 'error', message: 'Please wait for images to finish uploading.' });
         setProductSaveState('error');
         setTimeout(() => setProductSaveState('idle'), 1500);
         return;
@@ -925,6 +970,9 @@ export function AdminPage() {
   const handleUpdateProduct = async (e: React.FormEvent): Promise<boolean> => {
     e.preventDefault();
     if (!editProductId || !editProductForm) return false;
+    const isAnyUploading = editProductImages.some((img) => img.uploading);
+    const hasAnyErrors = editProductImages.some((img) => img.uploadError);
+    const hasAnyBlobUrls = editProductImages.some((img) => img.url?.startsWith('blob:'));
     console.debug('[shop save] clicked', {
       mode: 'edit',
       name: editProductForm.name,
@@ -933,21 +981,29 @@ export function AdminPage() {
       categoryCount: editProductForm.category ? 1 : 0,
       imageCount: editProductImages.length,
       imageKinds: describeImageKinds(editProductImages),
+      hasAnyBlobUrls,
     });
     setEditProductSaveState('saving');
     setProductStatus({ type: null, message: '' });
 
     try {
-      if (hasPendingUploads(editProductImages)) {
+      if (isAnyUploading) {
         console.debug('[shop save] blocked', { reason: 'images-uploading' });
-        setProductStatus({ type: 'error', message: 'Images are still uploading. Please wait.' });
+        setProductStatus({ type: 'error', message: 'Please wait for images to finish uploading.' });
         setEditProductSaveState('error');
         setTimeout(() => setEditProductSaveState('idle'), 1500);
         return false;
       }
-      if (hasUploadErrors(editProductImages)) {
+      if (hasAnyErrors) {
         console.debug('[shop save] blocked', { reason: 'image-upload-error' });
         setProductStatus({ type: 'error', message: 'One or more images failed to upload.' });
+        setEditProductSaveState('error');
+        setTimeout(() => setEditProductSaveState('idle'), 1500);
+        return false;
+      }
+      if (hasAnyBlobUrls) {
+        console.debug('[shop save] blocked', { reason: 'blob-urls-present' });
+        setProductStatus({ type: 'error', message: 'Please wait for images to finish uploading.' });
         setEditProductSaveState('error');
         setTimeout(() => setEditProductSaveState('idle'), 1500);
         return false;

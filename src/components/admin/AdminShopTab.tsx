@@ -269,11 +269,17 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
       throw err;
     }
   };
-  const isUploading = productImages.some((img) => img.uploading);
+  const isCreateUploading = productImages.some((img) => img.uploading);
   const missingUrlCount = productImages.filter(
     (img) => !img.uploading && !img.uploadError && !!img.previewUrl && !img.url
   ).length;
   const failedCount = productImages.filter((img) => img.uploadError).length;
+  const hasCreateBlobUrls = productImages.some((img) => img.url?.startsWith('blob:'));
+  const isCreateBlocked = isCreateUploading || failedCount > 0 || missingUrlCount > 0 || hasCreateBlobUrls;
+  const isEditUploading = editProductImages.some((img) => img.uploading);
+  const editFailedCount = editProductImages.filter((img) => img.uploadError).length;
+  const hasEditBlobUrls = editProductImages.some((img) => img.url?.startsWith('blob:'));
+  const isEditBlocked = isEditUploading || editFailedCount > 0 || hasEditBlobUrls;
   const traceEntries = debugUploads ? getTrace().slice(-20) : [];
   const formatTraceDetails = (details?: Record<string, unknown>) => {
     if (!details) return '';
@@ -295,13 +301,14 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
 
   useEffect(() => {
     logUploadDebug('[shop save] disable check', {
-      isUploading,
+      isUploading: isCreateUploading,
       uploadingCount: productImages.filter((img) => img.uploading).length,
       missingUrlCount,
       failedCount,
+      hasCreateBlobUrls,
       imageCount: productImages.length,
     });
-  }, [failedCount, isUploading, missingUrlCount, productImages]);
+  }, [failedCount, isCreateUploading, hasCreateBlobUrls, missingUrlCount, productImages]);
 
   const normalizeCategory = (value: string | undefined | null) => (value || '').trim().toLowerCase();
   const getProductCategories = (product: Product): string[] => {
@@ -502,7 +509,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                   <div className="flex gap-3 pt-2 md:mt-auto">
                     <button
                       type="submit"
-                      disabled={productSaveState === 'saving' || isUploading || failedCount > 0 || missingUrlCount > 0}
+                      disabled={productSaveState === 'saving' || isCreateBlocked}
                       className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
                     >
                       {productSaveState === 'saving' ? (
@@ -514,11 +521,11 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                         'Save Product'
                       )}
                     </button>
-                    {(isUploading || failedCount > 0 || missingUrlCount > 0) && (
+                    {isCreateBlocked && (
                       <span className="text-xs text-slate-500 self-center">
-                        {isUploading && 'Uploading images...'}
-                        {!isUploading && failedCount > 0 && 'Fix failed uploads (remove/retry) before saving.'}
-                        {!isUploading && failedCount === 0 && missingUrlCount > 0 && 'Some images didn’t finish uploading. Retry or remove.'}
+                        {isCreateUploading && 'Uploading images...'}
+                        {!isCreateUploading && failedCount > 0 && 'Upload failed. Please retry or remove.'}
+                        {!isCreateUploading && failedCount === 0 && (missingUrlCount > 0 || hasCreateBlobUrls) && 'Please wait for images to finish uploading.'}
                       </span>
                     )}
                     <button
@@ -578,7 +585,6 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                   <button
                     type="button"
                     onClick={() => productImageFileInputRef.current?.click()}
-                    disabled={isUploading}
                     className="text-xs font-medium text-slate-700 border border-slate-300 rounded-full px-3 py-1 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     Upload Images
@@ -590,44 +596,41 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                     multiple
                     className="hidden"
                     onChange={(e) => {
-                      const fileList = e?.target?.files;
-                      const files = fileList ? Array.from(fileList) : [];
-                      logFileSelection('product input onChange files', files, activeProductSlot ?? null);
-                      logUploadDebug('[shop images] handler fired', {
-                        time: new Date().toISOString(),
-                        hasEvent: !!e,
-                        hasFiles: !!e?.target?.files,
-                        filesLen: e?.target?.files?.length ?? 0,
-                      });
-                      if (files.length === 0) {
-                        dlog('product input blocked: no files');
-                        trace('product input blocked', { reason: 'no-files' });
-                        logUploadWarn('[shop images] no files found; aborting upload');
-                        if (e?.target) e.target.value = '';
-                        return;
+                      const input = e.currentTarget;
+                      try {
+                        const fileList = input.files;
+                        const files = fileList ? Array.from(fileList) : [];
+                        logFileSelection('product input onChange files', files, activeProductSlot ?? null);
+                        logUploadDebug('[shop images] handler fired', {
+                          time: new Date().toISOString(),
+                          hasEvent: !!e,
+                          hasFiles: !!fileList,
+                          filesLen: fileList?.length ?? 0,
+                        });
+                        if (files.length === 0) {
+                          dlog('product input blocked: no files');
+                          trace('product input blocked', { reason: 'no-files' });
+                          logUploadWarn('[shop images] no files found; aborting upload');
+                          return;
+                        }
+                        handleAddProductImages(files, activeProductSlot ?? undefined);
+                        setActiveProductSlot(null);
+                      } finally {
+                        input.value = '';
                       }
-                      if (isUploading) {
-                        dlog('product input blocked: already uploading');
-                        trace('product input blocked', { reason: 'already-uploading' });
-                        if (e?.target) e.target.value = '';
-                        return;
-                      }
-                      handleAddProductImages(files, activeProductSlot ?? undefined);
-                      setActiveProductSlot(null);
-                      if (e?.target) e.target.value = '';
                     }}
                   />
                 </div>
-                {(isUploading || failedCount > 0) && (
+                {(isCreateUploading || failedCount > 0) && (
                   <div className="flex items-center gap-2 text-xs text-slate-600">
-                    {isUploading && (
+                    {isCreateUploading && (
                       <>
                         <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900" />
-                        <span>Uploading…</span>
+                        <span>Uploading...</span>
                       </>
                     )}
-                    {!isUploading && failedCount > 0 && (
-                      <span className="text-red-600">Upload failed. Please try again.</span>
+                    {!isCreateUploading && failedCount > 0 && (
+                      <span className="text-red-600">Upload failed. Please retry or remove.</span>
                     )}
                   </div>
                 )}
@@ -643,11 +646,6 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                       onDragOver={(e) => e.preventDefault()}
                         onDrop={(e) => {
                           e.preventDefault();
-                          if (isUploading) {
-                            dlog('product drop blocked: already uploading', { slotIndex: index });
-                            trace('product drop blocked', { reason: 'already-uploading', slotIndex: index });
-                            return;
-                          }
                           const fileList = e.dataTransfer?.files;
                           const files = Array.from(fileList ?? []);
                           logFileSelection('product drop files', files, index);
@@ -660,17 +658,16 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                           handleAddProductImages(files, index);
                         }}
                         onClick={() => {
-                          if (isUploading) return;
                           setActiveProductSlot(index);
                           productImageFileInputRef.current?.click();
                         }}
                       >
                         <img src={image.previewUrl ?? image.url} alt={`Product image ${index + 1}`} className="h-full w-full object-cover" />
                         {image.uploading && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-white/70">
+                          <div className="absolute inset-0 flex items-center justify-center bg-white/70 pointer-events-none">
                             <div className="flex items-center gap-2 text-xs text-gray-700">
                               <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900" />
-                              <span>Uploading…</span>
+                              <span>Uploading...</span>
                             </div>
                           </div>
                         )}
@@ -700,11 +697,6 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                       onDragOver={(e) => e.preventDefault()}
                         onDrop={(e) => {
                           e.preventDefault();
-                          if (isUploading) {
-                            dlog('product empty drop blocked: already uploading', { slotIndex: index });
-                            trace('product empty drop blocked', { reason: 'already-uploading', slotIndex: index });
-                            return;
-                          }
                           const fileList = e.dataTransfer?.files;
                           const files = fileList ? Array.from(fileList) : [];
                           logFileSelection('product empty drop files', files, index);
@@ -717,7 +709,6 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                           handleAddProductImages(files, index);
                         }}
                         onClick={() => {
-                          if (isUploading) return;
                           setActiveProductSlot(index);
                           productImageFileInputRef.current?.click();
                         }}
@@ -867,7 +858,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={editProductSaveState === 'saving'}
+                disabled={editProductSaveState === 'saving' || isEditBlocked}
                 className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
               >
                 {editProductSaveState === 'saving' ? 'Saving...' : 'Save'}
@@ -977,25 +968,28 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                     accept="image/*"
                     multiple
                     className="hidden"
-                  onChange={(e) => {
-                      logUploadDebug('[shop images] handler fired', {
-                        time: new Date().toISOString(),
-                        hasEvent: !!e,
-                        hasFiles: !!e?.target?.files,
-                        filesLen: e?.target?.files?.length ?? 0,
-                      });
-                      const fileList = e?.target?.files;
-                      const files = fileList ? Array.from(fileList) : [];
-                      logFileSelection('edit modal input onChange files', files, null);
-                      if (files.length === 0) {
-                        dlog('edit modal input blocked: no files');
-                        trace('edit modal input blocked', { reason: 'no-files' });
-                        logUploadWarn('[shop images] no files found; aborting upload');
-                        if (e?.target) e.target.value = '';
-                        return;
+                    onChange={(e) => {
+                      const input = e.currentTarget;
+                      try {
+                        logUploadDebug('[shop images] handler fired', {
+                          time: new Date().toISOString(),
+                          hasEvent: !!e,
+                          hasFiles: !!input.files,
+                          filesLen: input.files?.length ?? 0,
+                        });
+                        const fileList = input.files;
+                        const files = fileList ? Array.from(fileList) : [];
+                        logFileSelection('edit modal input onChange files', files, null);
+                        if (files.length === 0) {
+                          dlog('edit modal input blocked: no files');
+                          trace('edit modal input blocked', { reason: 'no-files' });
+                          logUploadWarn('[shop images] no files found; aborting upload');
+                          return;
+                        }
+                        handleModalFileSelect(fileList);
+                      } finally {
+                        input.value = '';
                       }
-                      handleModalFileSelect(fileList);
-                      if (editProductImageFileInputRef.current) editProductImageFileInputRef.current.value = '';
                     }}
                   />
                 </div>
@@ -1009,10 +1003,10 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                           <div key={image.id} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
                             <img src={image.previewUrl ?? image.url} alt={`Edit image ${idx + 1}`} className="h-full w-full object-cover" />
                             {image.uploading && (
-                              <div className="absolute inset-0 flex items-center justify-center bg-white/70">
+                              <div className="absolute inset-0 flex items-center justify-center bg-white/70 pointer-events-none">
                                 <div className="flex items-center gap-2 text-xs text-gray-700">
                                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900" />
-                                  <span>Uploading…</span>
+                                  <span>Uploading...</span>
                                 </div>
                               </div>
                             )}
@@ -1039,9 +1033,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                         <button
                           key={idx}
                           type="button"
-                          disabled={isUploading}
                           onClick={() => {
-                            if (isUploading) return;
                             editProductImageFileInputRef.current?.click();
                           }}
                           className="flex items-center justify-center aspect-square rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400 disabled:opacity-60 disabled:cursor-not-allowed"
