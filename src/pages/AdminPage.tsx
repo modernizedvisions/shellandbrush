@@ -11,7 +11,9 @@ import {
   adminCreateProduct,
   adminUpdateProduct,
   adminDeleteProduct,
-  adminUploadImage,
+  adminInitProductImageUpload,
+  adminConfirmProductImageUpload,
+  adminAbortProductImageUpload,
   adminDeleteImage,
 } from '../lib/api';
 import {
@@ -42,6 +44,7 @@ import {
 import type { AdminCustomOrder } from '../lib/db/customOrders';
 import { debugUploadsEnabled, dlog, derr, formatUploadDebugError, truncate } from '../lib/debugUploads';
 import { trace } from '../lib/uploadTrace';
+import { recordProductUploadTrace } from '../lib/productUploadTrace';
 
 export type ProductFormState = {
   name: string;
@@ -58,6 +61,8 @@ export type ProductFormState = {
   stripeProductId?: string;
 };
 
+export type UploadStatus = 'empty' | 'queued' | 'uploading' | 'uploaded' | 'error';
+
 export type ShopImage = {
   id: string;
   url: string;
@@ -65,8 +70,10 @@ export type ShopImage = {
   isPrimary: boolean;
   isNew?: boolean;
   uploading: boolean;
+  status?: UploadStatus;
   uploadError?: string;
   uploadToken?: string;
+  uploadId?: string;
   uploadStartedAt?: number;
   errorMessage?: string;
   imageId?: string;
@@ -85,6 +92,18 @@ const createUploadToken = () => {
   return `upload_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 };
 const UPLOAD_FAILED_MESSAGE = 'Upload failed. Please retry or remove.';
+const UPLOAD_TIMEOUT_MS = 60_000;
+
+type QueuedUpload = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  uploadToken: string;
+  uploadStartedAt: number;
+  setImages: React.Dispatch<React.SetStateAction<ManagedImage[]>>;
+  getImages: () => ManagedImage[];
+  source: 'create' | 'edit';
+};
 
 const initialProductForm: ProductFormState = {
   name: '',
@@ -146,12 +165,20 @@ export function AdminPage() {
   const logUploadDebug = (...args: unknown[]) => {
     if (debugUploads) console.debug(...args);
   };
-  const logUploadError = (...args: unknown[]) => {
-    if (debugUploads) console.error(...args);
-  };
-  const logUploadInfo = (...args: unknown[]) => {
-    if (debugUploads) console.log(...args);
-  };
+  const uploadQueueRef = useRef<QueuedUpload[]>([]);
+  const uploadProcessingRef = useRef(false);
+  const uploadControllersRef = useRef(new Map<string, AbortController>());
+  const uploadTimeoutsRef = useRef(new Map<string, number>());
+  const productImagesRef = useRef<ManagedImage[]>([]);
+  const editProductImagesRef = useRef<ManagedImage[]>([]);
+
+  useEffect(() => {
+    productImagesRef.current = productImages;
+  }, [productImages]);
+
+  useEffect(() => {
+    editProductImagesRef.current = editProductImages;
+  }, [editProductImages]);
 
   const filteredOrders = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -387,99 +414,191 @@ export function AdminPage() {
   const resetProductForm = () => {
     setProductForm({ ...initialProductForm });
     setProductImages([]);
+    productImagesRef.current = [];
   };
 
-  const uploadManagedImage = async (
-    id: string,
-    file: File,
-    previewUrl: string,
-    uploadToken: string,
-    uploadStartedAt: number,
-    setImages: React.Dispatch<React.SetStateAction<ManagedImage[]>>
-  ) => {
+  const cancelUploadToken = (token?: string, uploadId?: string) => {
+    if (token) {
+      uploadQueueRef.current = uploadQueueRef.current.filter((entry) => entry.uploadToken !== token);
+      const controller = uploadControllersRef.current.get(token);
+      if (controller) {
+        controller.abort();
+        uploadControllersRef.current.delete(token);
+      }
+      const timeoutId = uploadTimeoutsRef.current.get(token);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        uploadTimeoutsRef.current.delete(token);
+      }
+    }
+    if (uploadId) {
+      void adminAbortProductImageUpload(uploadId).catch((err) => {
+        if (debugUploads) console.warn('[shop images] abort failed', err);
+      });
+    }
+  };
+
+  const processUploadQueue = async () => {
+    if (uploadProcessingRef.current) return;
+    uploadProcessingRef.current = true;
+    while (uploadQueueRef.current.length > 0) {
+      const next = uploadQueueRef.current.shift();
+      if (!next) break;
+      await runQueuedUpload(next);
+    }
+    uploadProcessingRef.current = false;
+  };
+
+  const enqueueUploads = (entries: QueuedUpload[]) => {
+    if (!entries.length) return;
+    uploadQueueRef.current.push(...entries);
+    void processUploadQueue();
+  };
+
+  const runQueuedUpload = async (entry: QueuedUpload) => {
+    const { id, file, previewUrl, uploadToken, uploadStartedAt, setImages, getImages, source } = entry;
+    const isCurrent = () => {
+      const current = getImages().find((img) => img.id === id);
+      return !!current && current.uploadToken === uploadToken;
+    };
+    const updateIfCurrent = (patch: Partial<ManagedImage>) => {
+      setImages((prev) =>
+        prev.map((img) =>
+          img.id === id && img.uploadToken === uploadToken
+            ? {
+                ...img,
+                ...patch,
+              }
+            : img
+        )
+      );
+    };
+
+    if (!isCurrent()) {
+      recordProductUploadTrace('skip', { id, reason: 'stale' });
+      return;
+    }
+
     const fileMeta = {
       name: file.name,
       size: file.size,
       type: file.type,
       lastModified: file.lastModified,
     };
-    dlog('uploadManagedImage start', { id, ...fileMeta });
-    trace('uploadManagedImage start', { id, ...fileMeta });
-    logUploadDebug('[shop images] upload start', {
-      id,
-      name: file.name,
-      size: file.size,
-      type: file.type,
+    recordProductUploadTrace('init start', { id, source, ...fileMeta });
+    dlog('product upload start', { id, source, ...fileMeta });
+    trace('product upload start', { id, source, ...fileMeta });
+
+    updateIfCurrent({
+      uploading: true,
+      status: 'uploading',
+      uploadError: undefined,
+      errorMessage: undefined,
+      uploadStartedAt,
     });
-    setImages((prev) =>
-      prev.map((img) =>
-        img.id === id && (!img.uploadToken || img.uploadToken === uploadToken)
-            ? {
-                ...img,
-                uploading: true,
-                uploadError: undefined,
-                uploadToken,
-                uploadStartedAt,
-                errorMessage: undefined,
-              }
-            : img
-        )
-      );
-    try {
-      dlog('uploadManagedImage about to call adminUploadImage', { id, ...fileMeta });
-      trace('uploadManagedImage before adminUploadImage', { id, ...fileMeta });
-      const result = await adminUploadImage(file, { scope: 'products', entityType: 'product' });
-      URL.revokeObjectURL(previewUrl);
-      setImages((prev) =>
-        prev.map((img) =>
-          img.id === id && img.uploadToken === uploadToken
-            ? {
-                ...img,
-                url: result.url,
-                imageId: result.id,
-                file: undefined,
-                uploading: false,
-                uploadError: undefined,
-                previewUrl: undefined,
-                errorMessage: undefined,
-              }
-            : img
-        )
-      );
-      logUploadDebug('[shop images] upload success', {
-        id,
-        name: file.name,
-        url: result.url,
+
+    const controller = new AbortController();
+    uploadControllersRef.current.set(uploadToken, controller);
+    let uploadId: string | null = null;
+
+    const timeoutId = setTimeout(() => {
+      if (!isCurrent()) return;
+      recordProductUploadTrace('timeout', { id, uploadId, source });
+      controller.abort();
+      updateIfCurrent({
+        uploading: false,
+        status: 'error',
+        uploadError: 'Upload timed out. Please retry.',
+        errorMessage: debugUploads ? 'Upload timed out.' : undefined,
       });
-      return result;
+      if (uploadId) {
+        void adminAbortProductImageUpload(uploadId).catch((err) => {
+          if (debugUploads) console.warn('[shop images] abort failed', err);
+        });
+      }
+    }, UPLOAD_TIMEOUT_MS);
+    uploadTimeoutsRef.current.set(uploadToken, timeoutId);
+
+    try {
+      const init = await adminInitProductImageUpload(file);
+      uploadId = init.uploadId;
+      recordProductUploadTrace('init ok', { id, uploadId, source, expiresIn: init.expiresInSeconds });
+      if (!isCurrent()) {
+        if (uploadId) {
+          void adminAbortProductImageUpload(uploadId).catch((err) => {
+            if (debugUploads) console.warn('[shop images] abort failed', err);
+          });
+        }
+        return;
+      }
+      updateIfCurrent({ uploadId });
+
+      recordProductUploadTrace('put start', { id, uploadId, source });
+      const putResponse = await fetch(init.putUrl, {
+        method: 'PUT',
+        body: file,
+        signal: controller.signal,
+      });
+      const putText = await putResponse.text().catch(() => '');
+      if (!putResponse.ok) {
+        throw new Error(putText || `Upload failed (${putResponse.status}).`);
+      }
+      recordProductUploadTrace('put ok', { id, uploadId, source, status: putResponse.status });
+
+      if (!isCurrent()) {
+        if (uploadId) {
+          void adminAbortProductImageUpload(uploadId).catch((err) => {
+            if (debugUploads) console.warn('[shop images] abort failed', err);
+          });
+        }
+        return;
+      }
+
+      recordProductUploadTrace('confirm start', { id, uploadId, source });
+      const confirmed = await adminConfirmProductImageUpload(uploadId);
+      recordProductUploadTrace('confirm ok', { id, uploadId, source, imageId: confirmed.id });
+      if (!isCurrent()) return;
+
+      URL.revokeObjectURL(previewUrl);
+      updateIfCurrent({
+        url: confirmed.url,
+        imageId: confirmed.id,
+        file: undefined,
+        previewUrl: undefined,
+        uploading: false,
+        status: 'uploaded',
+        uploadError: undefined,
+        errorMessage: undefined,
+        uploadId: undefined,
+      });
     } catch (err) {
       const errorName = err instanceof Error ? err.name : 'Error';
       const errorMessage = err instanceof Error ? err.message : String(err);
-      dlog('uploadManagedImage error', { id, errorName, errorMessage });
-      trace('uploadManagedImage error', { id, errorName, errorMessage });
-      const message = UPLOAD_FAILED_MESSAGE;
-      const detailMessage = debugUploads
-        ? formatUploadDebugError(err)
-        : truncate(err instanceof Error ? err.message : String(err));
-      setImages((prev) =>
-        prev.map((img) =>
-          img.id === id && img.uploadToken === uploadToken
-            ? {
-                ...img,
-                uploading: false,
-                uploadError: message,
-                ...(detailMessage ? { errorMessage: detailMessage } : {}),
-              }
-            : img
-        )
-      );
-      logUploadDebug('[shop images] upload failure', {
-        id,
-        name: file.name,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      throw err;
+      recordProductUploadTrace('error', { id, uploadId, source, errorName, errorMessage });
+      dlog('product upload error', { id, errorName, errorMessage });
+      trace('product upload error', { id, errorName, errorMessage });
+      if (uploadId && errorName !== 'AbortError') {
+        void adminAbortProductImageUpload(uploadId).catch((abortErr) => {
+          if (debugUploads) console.warn('[shop images] abort failed', abortErr);
+        });
+      }
+      if (isCurrent()) {
+        const message = UPLOAD_FAILED_MESSAGE;
+        const detailMessage = debugUploads ? formatUploadDebugError(err) : truncate(errorMessage);
+        updateIfCurrent({
+          uploading: false,
+          status: 'error',
+          uploadError: message,
+          ...(detailMessage ? { errorMessage: detailMessage } : {}),
+        });
+      }
     } finally {
+      const pendingTimeout = uploadTimeoutsRef.current.get(uploadToken);
+      if (pendingTimeout) {
+        clearTimeout(pendingTimeout);
+        uploadTimeoutsRef.current.delete(uploadToken);
+      }
+      uploadControllersRef.current.delete(uploadToken);
       setImages((prev) =>
         prev.map((img) =>
           img.id === id && img.uploadToken === uploadToken && img.uploading
@@ -490,13 +609,14 @@ export function AdminPage() {
             : img
         )
       );
-      logUploadDebug('[shop images] upload finally', { id, name: file.name });
+      recordProductUploadTrace('settled', { id, uploadId, source });
     }
   };
 
   const addImages = async (
     files: File[],
     setImages: React.Dispatch<React.SetStateAction<ManagedImage[]>>,
+    source: 'create' | 'edit',
     slotIndex?: number
   ) => {
     const runAddImages = async () => {
@@ -506,8 +626,9 @@ export function AdminPage() {
         return;
       }
       const incoming = [...files];
-      const uploads: Array<{ id: string; file: File; previewUrl: string; uploadToken: string; uploadStartedAt: number }> = [];
+      const uploads: QueuedUpload[] = [];
       const previewsToRevoke: string[] = [];
+      const tokensToCancel: Array<{ token?: string; uploadId?: string }> = [];
 
       dlog('addImages start', { count: incoming.length, slotIndex });
       trace('addImages start', { count: incoming.length, slotIndex });
@@ -525,6 +646,9 @@ export function AdminPage() {
             const pos = Math.min(start + offset, maxSlots - 1);
             const existing = result[pos];
             if (existing?.previewUrl) previewsToRevoke.push(existing.previewUrl);
+            if (existing?.uploadToken || existing?.uploadId) {
+              tokensToCancel.push({ token: existing.uploadToken, uploadId: existing.uploadId });
+            }
             const meta = {
               name: file.name,
               size: file.size,
@@ -539,7 +663,7 @@ export function AdminPage() {
             const id = crypto.randomUUID();
             const uploadToken = createUploadToken();
             const uploadStartedAt = Date.now();
-            uploads.push({ id, file, previewUrl, uploadToken, uploadStartedAt });
+            uploads.push({ id, file, previewUrl, uploadToken, uploadStartedAt, setImages, getImages: () => (source === 'create' ? productImagesRef.current : editProductImagesRef.current), source });
             const newEntry: ManagedImage = {
               id,
               url: previewUrl,
@@ -548,9 +672,11 @@ export function AdminPage() {
               isPrimary: false,
               isNew: true,
               uploading: true,
+              status: 'queued',
               uploadError: undefined,
               errorMessage: undefined,
               uploadToken,
+              uploadId: undefined,
               uploadStartedAt,
             };
             result[pos] = newEntry;
@@ -578,7 +704,7 @@ export function AdminPage() {
             const id = crypto.randomUUID();
             const uploadToken = createUploadToken();
             const uploadStartedAt = Date.now();
-            uploads.push({ id, file, previewUrl, uploadToken, uploadStartedAt });
+            uploads.push({ id, file, previewUrl, uploadToken, uploadStartedAt, setImages, getImages: () => (source === 'create' ? productImagesRef.current : editProductImagesRef.current), source });
             return {
               id,
               url: previewUrl,
@@ -587,9 +713,11 @@ export function AdminPage() {
               isPrimary: false,
               isNew: true,
               uploading: true,
+              status: 'queued',
               uploadError: undefined,
               errorMessage: undefined,
               uploadToken,
+              uploadId: undefined,
               uploadStartedAt,
             } as ManagedImage;
           });
@@ -604,10 +732,16 @@ export function AdminPage() {
           result[0].isPrimary = true;
         }
 
+        if (source === 'create') {
+          productImagesRef.current = result;
+        } else {
+          editProductImagesRef.current = result;
+        }
         return result;
       });
 
       previewsToRevoke.forEach((url) => URL.revokeObjectURL(url));
+      tokensToCancel.forEach(({ token, uploadId }) => cancelUploadToken(token, uploadId));
 
       dlog('addImages batch slots', {
         count: uploads.length,
@@ -625,80 +759,16 @@ export function AdminPage() {
         ids: uploads.map((u) => u.id),
         names: uploads.map((u) => u.file.name),
       });
-
-      const runUploads = async () => {
-        let attempted = 0;
-        let succeeded = 0;
-        let failed = 0;
-
-        for (const { id, file, previewUrl, uploadToken, uploadStartedAt } of uploads) {
-          attempted += 1;
-          logUploadDebug('[shop images] uploading', {
-            attempted,
-            name: file.name,
-            size: file.size,
-            type: file.type,
-          });
-          try {
-            const result = await uploadManagedImage(id, file, previewUrl, uploadToken, uploadStartedAt, setImages);
-            logUploadDebug('[shop images] upload success', {
-              name: file.name,
-              id: result.id,
-              url: result.url,
-            });
-            logUploadDebug('[shop images] settled', { name: file.name, ok: true, urlOrError: result.url });
-            succeeded += 1;
-          } catch (err) {
-            failed += 1;
-            logUploadError('[shop images] upload error', { name: file.name, err });
-            logUploadDebug('[shop images] settled', {
-              name: file.name,
-              ok: false,
-              urlOrError: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
-
-        let uploadingCountAfter = 0;
-        const batchTokens = new Set(uploads.map((upload) => upload.uploadToken));
-        setImages((prev) => {
-          const next = prev.map((img) => {
-            if (!img.uploadToken || !batchTokens.has(img.uploadToken)) return img;
-            if (!img.uploading) return img;
-            const hasFinalUrl = !!img.url && !isBlockedImageUrl(img.url);
-            const hasError = !!img.uploadError;
-            if (!hasFinalUrl && !hasError) {
-              return {
-                ...img,
-                uploading: false,
-                uploadError: UPLOAD_FAILED_MESSAGE,
-                errorMessage: debugUploads
-                  ? formatUploadDebugError(new Error(UPLOAD_FAILED_MESSAGE))
-                  : UPLOAD_FAILED_MESSAGE,
-              };
-            }
-            return { ...img, uploading: false };
-          });
-          uploadingCountAfter = next.filter((img) => img.uploading).length;
-          logUploadInfo(
-            '[shop images] post-reconcile',
-            next.map((img) => ({
-              id: img.id,
-              uploading: img.uploading,
-              hasFile: !!img.file,
-              hasUrl: !!img.url,
-              hasError: !!img.uploadError,
-              urlPrefix: img.url?.slice(0, 40),
-            }))
-          );
-          return next;
+      uploads.forEach((upload) => {
+        recordProductUploadTrace('queued', {
+          id: upload.id,
+          source: upload.source,
+          name: upload.file.name,
+          size: upload.file.size,
+          type: upload.file.type,
         });
-        logUploadDebug('[shop images] batch done', { attempted, succeeded, failed, uploadingCountAfter });
-        dlog('addImages batch done', { attempted, succeeded, failed, uploadingCountAfter });
-        trace('addImages batch done', { attempted, succeeded, failed, uploadingCountAfter });
-      };
-
-      void runUploads();
+      });
+      enqueueUploads(uploads);
     };
 
     if (!debugUploads) {
@@ -743,10 +813,13 @@ export function AdminPage() {
 
   const removeImage = async (
     id: string,
-    setImages: React.Dispatch<React.SetStateAction<ManagedImage[]>>
+    setImages: React.Dispatch<React.SetStateAction<ManagedImage[]>>,
+    source: 'create' | 'edit'
   ) => {
     let imageIdToDelete: string | undefined;
     let previewToRevoke: string | undefined;
+    let tokenToCancel: string | undefined;
+    let uploadIdToAbort: string | undefined;
     setImages((prev) => {
       const target = prev.find((img) => img.id === id);
       if (target?.isNew && target.imageId) {
@@ -755,14 +828,28 @@ export function AdminPage() {
       if (target?.previewUrl) {
         previewToRevoke = target.previewUrl;
       }
+      if (target?.uploadToken) {
+        tokenToCancel = target.uploadToken;
+      }
+      if (target?.uploadId) {
+        uploadIdToAbort = target.uploadId;
+      }
       const filtered = prev.filter((img) => img.id !== id);
       if (filtered.length > 0 && !filtered.some((img) => img.isPrimary)) {
         filtered[0].isPrimary = true;
+      }
+      if (source === 'create') {
+        productImagesRef.current = filtered;
+      } else {
+        editProductImagesRef.current = filtered;
       }
       return filtered;
     });
     if (previewToRevoke) {
       URL.revokeObjectURL(previewToRevoke);
+    }
+    if (tokenToCancel || uploadIdToAbort) {
+      cancelUploadToken(tokenToCancel, uploadIdToAbort);
     }
     if (imageIdToDelete) {
       try {
@@ -773,37 +860,73 @@ export function AdminPage() {
     }
   };
 
+  const retryImage = (
+    id: string,
+    setImages: React.Dispatch<React.SetStateAction<ManagedImage[]>>,
+    source: 'create' | 'edit'
+  ) => {
+    let entry: QueuedUpload | null = null;
+    let oldToken: string | undefined;
+    let oldUploadId: string | undefined;
+    setImages((prev) => {
+      const next = prev.map((img) => {
+        if (img.id !== id) return img;
+        if (!img.file) return img;
+        oldToken = img.uploadToken;
+        oldUploadId = img.uploadId;
+        const uploadToken = createUploadToken();
+        const uploadStartedAt = Date.now();
+        const previewUrl = img.previewUrl || URL.createObjectURL(img.file);
+        entry = {
+          id,
+          file: img.file,
+          previewUrl,
+          uploadToken,
+          uploadStartedAt,
+          setImages,
+          getImages: () => (source === 'create' ? productImagesRef.current : editProductImagesRef.current),
+          source,
+        };
+        return {
+          ...img,
+          url: previewUrl,
+          previewUrl,
+          uploading: true,
+          status: 'queued',
+          uploadError: undefined,
+          errorMessage: undefined,
+          uploadToken,
+          uploadId: undefined,
+          uploadStartedAt,
+        };
+      });
+      if (source === 'create') {
+        productImagesRef.current = next;
+      } else {
+        editProductImagesRef.current = next;
+      }
+      return next;
+    });
+    if (oldToken || oldUploadId) {
+      cancelUploadToken(oldToken, oldUploadId);
+    }
+    if (entry) {
+      recordProductUploadTrace('queued', {
+        id: entry.id,
+        source: entry.source,
+        retry: true,
+        name: entry.file.name,
+        size: entry.file.size,
+        type: entry.file.type,
+      });
+      enqueueUploads([entry]);
+    }
+  };
+
   const normalizeImageOrder = (images: ManagedImage[]): ManagedImage[] => {
     if (!images.length) return images;
     const primary = images.find((i) => i.isPrimary) || images[0];
     return [primary, ...images.filter((i) => i.id !== primary.id)];
-  };
-
-  const uploadImage = async (file: File): Promise<{ id: string; url: string }> => {
-    const result = await adminUploadImage(file, { scope: 'products', entityType: 'product' });
-    return { id: result.id, url: result.url };
-  };
-
-  const resolveImageUrls = async (
-    images: ManagedImage[]
-  ): Promise<{ imageUrl: string; imageUrls: string[]; primaryImageId: string; imageIds: string[] }> => {
-    const ordered = normalizeImageOrder(images);
-    const urls: string[] = [];
-
-    for (const img of ordered) {
-      if (img.file) {
-        const uploaded = await uploadImage(img.file);
-        urls.push(uploaded.url);
-      } else if (img.url) {
-        urls.push(img.url);
-      }
-    }
-
-    const primary = urls[0] || '';
-    const primaryImageId = ordered[0]?.imageId || '';
-    const orderedIds = ordered.map((img) => img.imageId || '').filter(Boolean);
-    const imageIds = primaryImageId ? orderedIds.filter((id) => id !== primaryImageId) : orderedIds;
-    return { imageUrl: primary, imageUrls: urls, primaryImageId, imageIds };
   };
 
   const deriveImagePayload = (
@@ -848,9 +971,11 @@ export function AdminPage() {
       isPrimary: idx === 0,
       isNew: false,
       uploading: false,
+      status: 'uploaded',
       uploadError: undefined,
       errorMessage: undefined,
       uploadToken: undefined,
+      uploadId: undefined,
       uploadStartedAt: undefined,
       needsMigration: isBlockedImageUrl(url),
     }));
@@ -862,6 +987,7 @@ export function AdminPage() {
     setEditProductId(null);
     setEditProductForm(null);
     setEditProductImages([]);
+    editProductImagesRef.current = [];
   };
 
   const handleCreateProduct = async (e: React.FormEvent) => {
@@ -922,7 +1048,7 @@ export function AdminPage() {
         });
         throw new Error('Images must be uploaded first (no blob/data URLs).');
       }
-      const uploaded = await resolveImageUrls(productImages);
+      const uploaded = deriveImagePayload(productImages);
       const mergedImages = mergeImages(
         { imageUrl: uploaded.imageUrl, imageUrls: uploaded.imageUrls },
         manualUrls
@@ -1259,13 +1385,15 @@ export function AdminPage() {
             onCreateProduct={handleCreateProduct}
             onProductFormChange={handleProductFormChange}
             onResetProductForm={resetProductForm}
-            onAddProductImages={(files, slotIndex) => addImages(files, setProductImages, slotIndex)}
+            onAddProductImages={(files, slotIndex) => addImages(files, setProductImages, 'create', slotIndex)}
             onSetPrimaryProductImage={(id) => setPrimaryImage(id, setProductImages)}
-            onRemoveProductImage={(id) => removeImage(id, setProductImages)}
-            onAddEditProductImages={(files, slotIndex) => addImages(files, setEditProductImages, slotIndex)}
+            onRemoveProductImage={(id) => removeImage(id, setProductImages, 'create')}
+            onRetryProductImage={(id) => retryImage(id, setProductImages, 'create')}
+            onAddEditProductImages={(files, slotIndex) => addImages(files, setEditProductImages, 'edit', slotIndex)}
             onSetPrimaryEditImage={(id) => setPrimaryImage(id, setEditProductImages)}
             onMoveEditImage={(id, dir) => moveImage(id, dir, setEditProductImages)}
-            onRemoveEditImage={(id) => removeImage(id, setEditProductImages)}
+            onRemoveEditImage={(id) => removeImage(id, setEditProductImages, 'edit')}
+            onRetryEditImage={(id) => retryImage(id, setEditProductImages, 'edit')}
             onEditFormChange={handleEditFormChange}
             onUpdateProduct={handleUpdateProduct}
             onCancelEditProduct={cancelEditProduct}

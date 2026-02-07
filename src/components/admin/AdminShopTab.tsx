@@ -8,7 +8,8 @@ import { adminFetchCategories } from '../../lib/api';
 import { AdminSectionHeader } from './AdminSectionHeader';
 import { CategoryManagementModal } from './CategoryManagementModal';
 import { debugUploadsEnabled, dlog, derr, truncate } from '../../lib/debugUploads';
-import { getTrace, trace } from '../../lib/uploadTrace';
+import { trace } from '../../lib/uploadTrace';
+import { getProductUploadTrace } from '../../lib/productUploadTrace';
 
 interface ProductAdminCardProps {
   product: Product;
@@ -167,10 +168,12 @@ export interface AdminShopTabProps {
   onAddProductImages: (files: File[], slotIndex?: number) => void;
   onSetPrimaryProductImage: (id: string) => void;
   onRemoveProductImage: (id: string) => void;
+  onRetryProductImage: (id: string) => void;
   onAddEditProductImages: (files: File[], slotIndex?: number) => void;
   onSetPrimaryEditImage: (id: string) => void;
   onMoveEditImage: (id: string, direction: 'up' | 'down') => void;
   onRemoveEditImage: (id: string) => void;
+  onRetryEditImage: (id: string) => void;
   onEditFormChange: (field: keyof ProductFormState, value: string | number | boolean) => void;
   onUpdateProduct: (e: React.FormEvent) => Promise<boolean | void>;
   onCancelEditProduct: () => void;
@@ -197,10 +200,12 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
   onAddProductImages,
   onSetPrimaryProductImage,
   onRemoveProductImage,
+  onRetryProductImage,
   onAddEditProductImages,
   onSetPrimaryEditImage,
   onMoveEditImage,
   onRemoveEditImage,
+  onRetryEditImage,
   onEditFormChange,
   onUpdateProduct,
   onCancelEditProduct,
@@ -280,7 +285,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
   const editFailedCount = editProductImages.filter((img) => img.uploadError).length;
   const hasEditBlobUrls = editProductImages.some((img) => img.url?.startsWith('blob:'));
   const isEditBlocked = isEditUploading || editFailedCount > 0 || hasEditBlobUrls;
-  const traceEntries = debugUploads ? getTrace().slice(-20) : [];
+  const traceEntries = debugUploads ? getProductUploadTrace() : [];
   const formatTraceDetails = (details?: Record<string, unknown>) => {
     if (!details) return '';
     try {
@@ -290,8 +295,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
     }
   };
   const handleCopyTrace = () => {
-    const lines = getTrace()
-      .slice(-20)
+    const lines = getProductUploadTrace()
       .map((entry) => `${entry.ts} ${entry.step} ${formatTraceDetails(entry.details)}`.trim())
       .join('\n');
     if (navigator?.clipboard?.writeText) {
@@ -667,7 +671,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                           <div className="absolute inset-0 flex items-center justify-center bg-white/70 pointer-events-none">
                             <div className="flex items-center gap-2 text-xs text-gray-700">
                               <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900" />
-                              <span>Uploading...</span>
+                              <span>{image.status === 'queued' ? 'Queued...' : 'Uploading...'}</span>
                             </div>
                           </div>
                         )}
@@ -679,13 +683,27 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                           >
                             {image.isPrimary ? 'Primary' : 'Set primary'}
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => onRemoveProductImage(image.id)}
-                            className="text-red-100 hover:text-red-300"
-                          >
-                            Remove
-                          </button>
+                          <div className="flex items-center gap-1">
+                            {image.uploadError && image.file && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onRetryProductImage(image.id);
+                                }}
+                                className="rounded bg-amber-200/90 px-2 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
+                              >
+                                Retry
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onRemoveProductImage(image.id)}
+                              className="text-red-100 hover:text-red-300"
+                            >
+                              Remove
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -720,7 +738,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
               </div>
               {debugUploads && (
                 <details className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-700">
-                  <summary className="cursor-pointer font-semibold">Upload Trace (Debug)</summary>
+                  <summary className="cursor-pointer font-semibold">Upload Trace (Products Debug)</summary>
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <button
                       type="button"
@@ -1006,7 +1024,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                               <div className="absolute inset-0 flex items-center justify-center bg-white/70 pointer-events-none">
                                 <div className="flex items-center gap-2 text-xs text-gray-700">
                                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900" />
-                                  <span>Uploading...</span>
+                                  <span>{image.status === 'queued' ? 'Queued...' : 'Uploading...'}</span>
                                 </div>
                               </div>
                             )}
@@ -1018,13 +1036,27 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                               >
                                 {image.isPrimary ? 'Primary' : 'Set primary'}
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveModalImage(image.id)}
-                                className="text-red-100 hover:text-red-300"
-                              >
-                                Remove
-                              </button>
+                              <div className="flex items-center gap-1">
+                                {image.uploadError && image.file && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onRetryEditImage(image.id);
+                                    }}
+                                    className="rounded bg-amber-200/90 px-2 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
+                                  >
+                                    Retry
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveModalImage(image.id)}
+                                  className="text-red-100 hover:text-red-300"
+                                >
+                                  Remove
+                                </button>
+                              </div>
                             </div>
                           </div>
                         );

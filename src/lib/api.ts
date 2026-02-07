@@ -186,6 +186,90 @@ export async function adminDeleteCategory(id: string): Promise<void> {
   if (!response.ok) throw new Error(`Delete category failed: ${response.status}`);
 }
 
+export type ProductUploadInitResponse = {
+  uploadId: string;
+  putUrl: string;
+  expiresInSeconds: number;
+  objectKey?: string;
+};
+
+export async function adminInitProductImageUpload(file: File): Promise<ProductUploadInitResponse> {
+  const response = await adminFetch('/api/admin/products/images/init', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      filename: file.name || 'upload',
+      size: file.size,
+      mime: file.type || undefined,
+    }),
+  });
+  const text = await response.text().catch(() => '');
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  if (!response.ok) {
+    const message = data?.error || text || `Init upload failed (${response.status}).`;
+    throw new Error(message);
+  }
+  const uploadId = typeof data?.uploadId === 'string' ? data.uploadId : '';
+  const putUrl = typeof data?.putUrl === 'string' ? data.putUrl : '';
+  if (!uploadId || !putUrl) {
+    throw new Error('Init upload response missing uploadId/putUrl.');
+  }
+  return {
+    uploadId,
+    putUrl,
+    expiresInSeconds: Number(data?.expiresInSeconds) || 900,
+    objectKey: typeof data?.objectKey === 'string' ? data.objectKey : undefined,
+  };
+}
+
+export async function adminConfirmProductImageUpload(uploadId: string): Promise<{ id: string; url: string }> {
+  const response = await adminFetch('/api/admin/products/images/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ uploadId }),
+  });
+  const text = await response.text().catch(() => '');
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  if (!response.ok) {
+    const message = data?.error || text || `Confirm upload failed (${response.status}).`;
+    throw new Error(message);
+  }
+  const id =
+    (typeof data?.id === 'string' && data.id) ||
+    (typeof data?.image?.id === 'string' && data.image.id) ||
+    '';
+  const url =
+    (typeof data?.url === 'string' && data.url) ||
+    (typeof data?.image?.publicUrl === 'string' && data.image.publicUrl) ||
+    '';
+  if (!id || !url) {
+    throw new Error('Confirm upload response missing id/url.');
+  }
+  return { id, url };
+}
+
+export async function adminAbortProductImageUpload(uploadId: string): Promise<void> {
+  const response = await adminFetch('/api/admin/products/images/abort', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ uploadId }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(text || `Abort upload failed (${response.status}).`);
+  }
+}
+
 export type AdminUploadOptions = {
   scope?: 'products' | 'gallery' | 'home' | 'categories';
   entityType?: string;
