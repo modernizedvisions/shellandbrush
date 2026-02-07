@@ -670,25 +670,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                     return (
                       <div
                         key={image.id}
-                        className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-100 cursor-pointer"
-                      onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          const fileList = e.dataTransfer?.files;
-                          const files = Array.from(fileList ?? []);
-                          logFileSelection('product drop files', files, index);
-                          if (files.length === 0) {
-                            dlog('product drop blocked: no files', { slotIndex: index });
-                            trace('product drop blocked', { reason: 'no-files', slotIndex: index });
-                            logUploadWarn('[shop images] no files found; aborting upload');
-                            return;
-                          }
-                          handleAddProductImages(files, index);
-                        }}
-                        onClick={() => {
-                          setActiveProductSlot(index);
-                          productImageFileInputRef.current?.click();
-                        }}
+                        className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-100"
                       >
                         {(image.previewUrl || image.url) ? (
                           <img src={image.previewUrl ?? image.url} alt={`Product image ${index + 1}`} className="h-full w-full object-cover" />
@@ -733,7 +715,10 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                             )}
                             <button
                               type="button"
-                              onClick={() => onRemoveProductImage(image.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onRemoveProductImage(image.id);
+                              }}
                               className="text-red-100 hover:text-red-300"
                             >
                               Remove
@@ -746,25 +731,7 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                   return (
                     <div
                       key={index}
-                      className="flex items-center justify-center aspect-square rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400 cursor-pointer"
-                      onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          const fileList = e.dataTransfer?.files;
-                          const files = fileList ? Array.from(fileList) : [];
-                          logFileSelection('product empty drop files', files, index);
-                          if (files.length === 0) {
-                            dlog('product empty drop blocked: no files', { slotIndex: index });
-                            trace('product empty drop blocked', { reason: 'no-files', slotIndex: index });
-                            logUploadWarn('[shop images] no files found; aborting upload');
-                            return;
-                          }
-                          handleAddProductImages(files, index);
-                        }}
-                        onClick={() => {
-                          setActiveProductSlot(index);
-                          productImageFileInputRef.current?.click();
-                        }}
+                      className="flex items-center justify-center aspect-square rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400"
                       >
                         Empty slot
                       </div>
@@ -1141,7 +1108,10 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                                 )}
                                 <button
                                   type="button"
-                                  onClick={() => handleRemoveModalImage(image.id)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveModalImage(image.id);
+                                  }}
                                   className="text-red-100 hover:text-red-300"
                                 >
                                   Remove
@@ -1152,16 +1122,12 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                         );
                       }
                       return (
-                        <button
+                        <div
                           key={idx}
-                          type="button"
-                          onClick={() => {
-                            editProductImageFileInputRef.current?.click();
-                          }}
-                          className="flex items-center justify-center aspect-square rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                          className="flex items-center justify-center aspect-square rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400"
                         >
-                          Upload
-                        </button>
+                          Empty slot
+                        </div>
                       );
                     })}
                 </div>
