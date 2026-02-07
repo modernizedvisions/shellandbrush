@@ -10,6 +10,7 @@ import { CategoryManagementModal } from './CategoryManagementModal';
 import { debugUploadsEnabled, dlog, derr, truncate } from '../../lib/debugUploads';
 import { trace } from '../../lib/uploadTrace';
 import { getProductUploadTrace } from '../../lib/productUploadTrace';
+import { copyDiag, diag, getDiag, getUploadDiagnosticsEnv } from '../../lib/uploadDiagnostics';
 
 interface ProductAdminCardProps {
   product: Product;
@@ -154,6 +155,8 @@ export interface AdminShopTabProps {
   productForm: ProductFormState;
   productImages: ManagedImage[];
   editProductImages: ManagedImage[];
+  productUploadNotice: string;
+  editUploadNotice: string;
   adminProducts: Product[];
   editProductId: string | null;
   editProductForm: ProductFormState | null;
@@ -186,6 +189,8 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
   productForm,
   productImages,
   editProductImages,
+  productUploadNotice,
+  editUploadNotice,
   adminProducts,
   editProductId,
   editProductForm,
@@ -286,6 +291,8 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
   const hasEditBlobUrls = editProductImages.some((img) => img.url?.startsWith('blob:'));
   const isEditBlocked = isEditUploading || editFailedCount > 0 || hasEditBlobUrls;
   const traceEntries = debugUploads ? getProductUploadTrace() : [];
+  const diagEntries = debugUploads ? getDiag() : [];
+  const diagEnv = debugUploads ? getUploadDiagnosticsEnv() : null;
   const formatTraceDetails = (details?: Record<string, unknown>) => {
     if (!details) return '';
     try {
@@ -300,6 +307,12 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
       .join('\n');
     if (navigator?.clipboard?.writeText) {
       void navigator.clipboard.writeText(lines);
+    }
+  };
+  const handleCopyDiagnostics = () => {
+    const payload = copyDiag();
+    if (navigator?.clipboard?.writeText) {
+      void navigator.clipboard.writeText(payload);
     }
   };
 
@@ -604,6 +617,12 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                       try {
                         const fileList = input.files;
                         const files = fileList ? Array.from(fileList) : [];
+                        diag('file_input_change', {
+                          source: 'create',
+                          count: files.length,
+                          slotIndex: activeProductSlot ?? null,
+                          files: files.map(fileMeta),
+                        });
                         logFileSelection('product input onChange files', files, activeProductSlot ?? null);
                         logUploadDebug('[shop images] handler fired', {
                           time: new Date().toISOString(),
@@ -615,6 +634,8 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                           dlog('product input blocked: no files');
                           trace('product input blocked', { reason: 'no-files' });
                           logUploadWarn('[shop images] no files found; aborting upload');
+                          diag('no_files_selected', { source: 'create', slotIndex: activeProductSlot ?? null });
+                          handleAddProductImages([], activeProductSlot ?? undefined);
                           return;
                         }
                         handleAddProductImages(files, activeProductSlot ?? undefined);
@@ -637,6 +658,9 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                       <span className="text-red-600">Upload failed. Please retry or remove.</span>
                     )}
                   </div>
+                )}
+                {productUploadNotice && (
+                  <div className="text-xs text-amber-700">{productUploadNotice}</div>
                 )}
 
               <div className="grid grid-cols-2 gap-3">
@@ -666,7 +690,18 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                           productImageFileInputRef.current?.click();
                         }}
                       >
-                        <img src={image.previewUrl ?? image.url} alt={`Product image ${index + 1}`} className="h-full w-full object-cover" />
+                        {(image.previewUrl || image.url) ? (
+                          <img src={image.previewUrl ?? image.url} alt={`Product image ${index + 1}`} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[11px] text-slate-500">
+                            No preview
+                          </div>
+                        )}
+                        {image.uploadError && !image.uploading && (
+                          <div className="absolute inset-x-0 top-0 bg-red-700/80 px-2 py-1 text-[11px] text-white leading-snug break-words">
+                            {image.uploadError}
+                          </div>
+                        )}
                         {image.uploading && (
                           <div className="absolute inset-0 flex items-center justify-center bg-white/70 pointer-events-none">
                             <div className="flex items-center gap-2 text-xs text-gray-700">
@@ -736,6 +771,39 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                   );
                 })}
               </div>
+              {debugUploads && (
+                <details className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-700">
+                  <summary className="cursor-pointer font-semibold">Upload Diagnostics (Debug)</summary>
+                  <div className="mt-2 space-y-2">
+                    <div className="rounded border border-slate-200 bg-white p-2 text-[11px]">
+                      <div><span className="font-semibold">userAgent:</span> {diagEnv?.userAgent || 'unknown'}</div>
+                      <div><span className="font-semibold">platform:</span> {diagEnv?.platform || 'unknown'}</div>
+                      <div><span className="font-semibold">secureContext:</span> {String(diagEnv?.isSecureContext ?? false)}</div>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCopyDiagnostics}
+                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-400"
+                      >
+                        Copy diagnostics
+                      </button>
+                      <span className="text-[11px] text-slate-500">{diagEntries.length} entries</span>
+                    </div>
+                    <div className="max-h-40 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px]">
+                      {diagEntries.length === 0 ? (
+                        <div className="text-slate-500">No diagnostics yet.</div>
+                      ) : (
+                        diagEntries.slice(-20).map((entry, idx) => (
+                          <div key={`${entry.ts}-${idx}`} className="whitespace-pre-wrap break-words">
+                            {entry.ts} {entry.level} {entry.step} {formatTraceDetails(entry.details)}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </details>
+              )}
               {debugUploads && (
                 <details className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-700">
                   <summary className="cursor-pointer font-semibold">Upload Trace (Products Debug)</summary>
@@ -997,11 +1065,19 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                         });
                         const fileList = input.files;
                         const files = fileList ? Array.from(fileList) : [];
+                        diag('file_input_change', {
+                          source: 'edit',
+                          count: files.length,
+                          slotIndex: null,
+                          files: files.map(fileMeta),
+                        });
                         logFileSelection('edit modal input onChange files', files, null);
                         if (files.length === 0) {
                           dlog('edit modal input blocked: no files');
                           trace('edit modal input blocked', { reason: 'no-files' });
                           logUploadWarn('[shop images] no files found; aborting upload');
+                          diag('no_files_selected', { source: 'edit', slotIndex: null });
+                          handleAddEditProductImages([]);
                           return;
                         }
                         handleModalFileSelect(fileList);
@@ -1011,6 +1087,9 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                     }}
                   />
                 </div>
+                {editUploadNotice && (
+                  <div className="text-xs text-amber-700">{editUploadNotice}</div>
+                )}
 
                 <div className="grid grid-cols-2 gap-3">
                   {logUploadDebug('[edit modal] render images', editImages)}
@@ -1019,7 +1098,18 @@ export const AdminShopTab: React.FC<AdminShopTabProps> = ({
                       if (image) {
                         return (
                           <div key={image.id} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
-                            <img src={image.previewUrl ?? image.url} alt={`Edit image ${idx + 1}`} className="h-full w-full object-cover" />
+                            {(image.previewUrl || image.url) ? (
+                              <img src={image.previewUrl ?? image.url} alt={`Edit image ${idx + 1}`} className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-[11px] text-slate-500">
+                                No preview
+                              </div>
+                            )}
+                            {image.uploadError && !image.uploading && (
+                              <div className="absolute inset-x-0 top-0 bg-red-700/80 px-2 py-1 text-[11px] text-white leading-snug break-words">
+                                {image.uploadError}
+                              </div>
+                            )}
                             {image.uploading && (
                               <div className="absolute inset-0 flex items-center justify-center bg-white/70 pointer-events-none">
                                 <div className="flex items-center gap-2 text-xs text-gray-700">

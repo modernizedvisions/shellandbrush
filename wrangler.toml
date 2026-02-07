@@ -1,8 +1,8 @@
-name = "chesapeake_shell"
+name = "shellandbrush"
 compatibility_date = "2024-01-01"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "shellandbrush-test"
-database_id = "f722d8e9a386cc043646124e71f223b9"
-preview_database_id = "f722d8e9a386cc043646124e71f223b9"
+database_id = "8ade7f74-90c9-43be-b6e6-01cdaa5ff0ee"
+preview_database_id = "8ade7f74-90c9-43be-b6e6-01cdaa5ff0ee"

@@ -45,6 +45,9 @@ import type { AdminCustomOrder } from '../lib/db/customOrders';
 import { debugUploadsEnabled, dlog, derr, formatUploadDebugError, truncate } from '../lib/debugUploads';
 import { trace } from '../lib/uploadTrace';
 import { recordProductUploadTrace } from '../lib/productUploadTrace';
+import { probeFileReadable } from '../lib/fileReadiness';
+import { isAllowedImageFile } from '../lib/fileTypes';
+import { diag } from '../lib/uploadDiagnostics';
 
 export type ProductFormState = {
   name: string;
@@ -91,7 +94,6 @@ const createUploadToken = () => {
   }
   return `upload_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 };
-const UPLOAD_FAILED_MESSAGE = 'Upload failed. Please retry or remove.';
 const UPLOAD_TIMEOUT_MS = 60_000;
 
 type QueuedUpload = {
@@ -100,6 +102,7 @@ type QueuedUpload = {
   previewUrl: string;
   uploadToken: string;
   uploadStartedAt: number;
+  normalizedMime?: string;
   setImages: React.Dispatch<React.SetStateAction<ManagedImage[]>>;
   getImages: () => ManagedImage[];
   source: 'create' | 'edit';
@@ -153,6 +156,8 @@ export function AdminPage() {
   const [editProductForm, setEditProductForm] = useState<ProductFormState | null>(null);
   const [productImages, setProductImages] = useState<ManagedImage[]>([]);
   const [editProductImages, setEditProductImages] = useState<ManagedImage[]>([]);
+  const [productUploadNotice, setProductUploadNotice] = useState('');
+  const [editProductUploadNotice, setEditProductUploadNotice] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const productImageFileInputRef = useRef<HTMLInputElement | null>(null);
   const editProductImageFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -171,6 +176,7 @@ export function AdminPage() {
   const uploadTimeoutsRef = useRef(new Map<string, number>());
   const productImagesRef = useRef<ManagedImage[]>([]);
   const editProductImagesRef = useRef<ManagedImage[]>([]);
+  const uploadNoticeTimeoutsRef = useRef<{ create?: number; edit?: number }>({});
 
   useEffect(() => {
     productImagesRef.current = productImages;
@@ -415,6 +421,56 @@ export function AdminPage() {
     setProductForm({ ...initialProductForm });
     setProductImages([]);
     productImagesRef.current = [];
+    setProductUploadNotice('');
+  };
+
+  const setUploadNotice = (source: 'create' | 'edit', message: string) => {
+    const setter = source === 'create' ? setProductUploadNotice : setEditProductUploadNotice;
+    setter(message);
+    const key = source === 'create' ? 'create' : 'edit';
+    const existingTimeout = uploadNoticeTimeoutsRef.current[key];
+    if (existingTimeout) clearTimeout(existingTimeout);
+    if (typeof window !== 'undefined' && message) {
+      uploadNoticeTimeoutsRef.current[key] = window.setTimeout(() => {
+        setter('');
+        uploadNoticeTimeoutsRef.current[key] = undefined;
+      }, 4500);
+    }
+  };
+
+  const formatPreflightMessage = (message: string, code?: string) =>
+    code ? `${message} (code: ${code})` : message;
+
+  const classifyUploadError = (err: unknown, stage: 'init' | 'put' | 'confirm' | 'unknown') => {
+    const errorName = err instanceof Error ? err.name : 'Error';
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    const normalized = (rawMessage || '').toLowerCase();
+
+    if (errorName === 'AbortError') {
+      return { code: 'UPLOAD_ABORTED', message: 'Upload was cancelled.' };
+    }
+    if (normalized.includes('timed out') || normalized.includes('timeout')) {
+      return { code: 'UPLOAD_TIMEOUT', message: 'Upload timed out. Please retry.' };
+    }
+    if (
+      normalized.includes('failed to fetch') ||
+      normalized.includes('networkerror') ||
+      normalized.includes('network error')
+    ) {
+      return { code: 'NETWORK_ERROR', message: 'Network error while uploading. Check your connection and retry.' };
+    }
+
+    const trimmed = truncate(rawMessage || 'Upload failed.', 140);
+    if (stage === 'init') {
+      return { code: 'INIT_FAILED', message: `Init failed: ${trimmed}` };
+    }
+    if (stage === 'put') {
+      return { code: 'PUT_FAILED', message: `Upload failed while sending file: ${trimmed}` };
+    }
+    if (stage === 'confirm') {
+      return { code: 'CONFIRM_FAILED', message: `Upload confirm failed: ${trimmed}` };
+    }
+    return { code: 'UPLOAD_FAILED', message: `Upload failed: ${trimmed}` };
   };
 
   const cancelUploadToken = (token?: string, uploadId?: string) => {
@@ -457,6 +513,7 @@ export function AdminPage() {
 
   const runQueuedUpload = async (entry: QueuedUpload) => {
     const { id, file, previewUrl, uploadToken, uploadStartedAt, setImages, getImages, source } = entry;
+    let stage: 'init' | 'put' | 'confirm' | 'unknown' = 'unknown';
     const isCurrent = () => {
       const current = getImages().find((img) => img.id === id);
       return !!current && current.uploadToken === uploadToken;
@@ -476,6 +533,7 @@ export function AdminPage() {
 
     if (!isCurrent()) {
       recordProductUploadTrace('skip', { id, reason: 'stale' });
+      diag('early_return', { reasonCode: 'STALE_TOKEN', source, id });
       return;
     }
 
@@ -488,6 +546,57 @@ export function AdminPage() {
     recordProductUploadTrace('init start', { id, source, ...fileMeta });
     dlog('product upload start', { id, source, ...fileMeta });
     trace('product upload start', { id, source, ...fileMeta });
+
+    const readiness = await probeFileReadable(file);
+    if (!readiness.ok) {
+      const message = formatPreflightMessage(readiness.message, readiness.code);
+      recordProductUploadTrace('probe_failed', { id, source, code: readiness.code, ...fileMeta });
+      diag('probe_failed', {
+        id,
+        source,
+        code: readiness.code,
+        file: { name: file.name, size: file.size, type: file.type || '' },
+        debug: readiness.debug,
+      });
+      diag('early_return', {
+        id,
+        source,
+        reasonCode: readiness.code,
+      });
+      updateIfCurrent({
+        uploading: false,
+        status: 'error',
+        uploadError: message,
+        errorMessage: debugUploads ? readiness.debug : undefined,
+      });
+      return;
+    }
+
+    const typeCheck = isAllowedImageFile(file);
+    if (!typeCheck.ok) {
+      const message = formatPreflightMessage(typeCheck.reason || 'Unsupported file type.', typeCheck.code || 'FILE_TYPE_BLOCKED');
+      recordProductUploadTrace('type_blocked', { id, source, code: typeCheck.code, ...fileMeta });
+      diag('type_blocked', {
+        id,
+        source,
+        code: typeCheck.code || 'FILE_TYPE_BLOCKED',
+        reason: typeCheck.reason,
+        file: { name: file.name, size: file.size, type: file.type || '' },
+      });
+      diag('early_return', {
+        id,
+        source,
+        reasonCode: typeCheck.code || 'FILE_TYPE_BLOCKED',
+      });
+      updateIfCurrent({
+        uploading: false,
+        status: 'error',
+        uploadError: message,
+      });
+      return;
+    }
+
+    const normalizedMime = entry.normalizedMime || typeCheck.normalizedMime;
 
     updateIfCurrent({
       uploading: true,
@@ -505,10 +614,11 @@ export function AdminPage() {
       if (!isCurrent()) return;
       recordProductUploadTrace('timeout', { id, uploadId, source });
       controller.abort();
+      const timedMessage = formatPreflightMessage('Upload timed out. Please retry.', 'UPLOAD_TIMEOUT');
       updateIfCurrent({
         uploading: false,
         status: 'error',
-        uploadError: 'Upload timed out. Please retry.',
+        uploadError: timedMessage,
         errorMessage: debugUploads ? 'Upload timed out.' : undefined,
       });
       if (uploadId) {
@@ -520,7 +630,8 @@ export function AdminPage() {
     uploadTimeoutsRef.current.set(uploadToken, timeoutId);
 
     try {
-      const init = await adminInitProductImageUpload(file);
+      stage = 'init';
+      const init = await adminInitProductImageUpload(file, normalizedMime);
       uploadId = init.uploadId;
       recordProductUploadTrace('init ok', { id, uploadId, source, expiresIn: init.expiresInSeconds });
       if (!isCurrent()) {
@@ -533,6 +644,7 @@ export function AdminPage() {
       }
       updateIfCurrent({ uploadId });
 
+      stage = 'put';
       recordProductUploadTrace('put start', { id, uploadId, source });
       const putResponse = await fetch(init.putUrl, {
         method: 'PUT',
@@ -554,6 +666,7 @@ export function AdminPage() {
         return;
       }
 
+      stage = 'confirm';
       recordProductUploadTrace('confirm start', { id, uploadId, source });
       const confirmed = await adminConfirmProductImageUpload(uploadId);
       recordProductUploadTrace('confirm ok', { id, uploadId, source, imageId: confirmed.id });
@@ -574,16 +687,38 @@ export function AdminPage() {
     } catch (err) {
       const errorName = err instanceof Error ? err.name : 'Error';
       const errorMessage = err instanceof Error ? err.message : String(err);
-      recordProductUploadTrace('error', { id, uploadId, source, errorName, errorMessage });
-      dlog('product upload error', { id, errorName, errorMessage });
-      trace('product upload error', { id, errorName, errorMessage });
+      const classification = classifyUploadError(err, stage);
+      const userMessage = formatPreflightMessage(classification.message, classification.code);
+      recordProductUploadTrace('error', {
+        id,
+        uploadId,
+        source,
+        errorName,
+        errorMessage,
+        code: classification.code,
+        stage,
+      });
+      diag(
+        'upload_error',
+        {
+          id,
+          uploadId,
+          source,
+          stage,
+          code: classification.code,
+          message: classification.message,
+        },
+        'error'
+      );
+      dlog('product upload error', { id, errorName, errorMessage, code: classification.code, stage });
+      trace('product upload error', { id, errorName, errorMessage, code: classification.code, stage });
       if (uploadId && errorName !== 'AbortError') {
         void adminAbortProductImageUpload(uploadId).catch((abortErr) => {
           if (debugUploads) console.warn('[shop images] abort failed', abortErr);
         });
       }
       if (isCurrent()) {
-        const message = UPLOAD_FAILED_MESSAGE;
+        const message = userMessage;
         const detailMessage = debugUploads ? formatUploadDebugError(err) : truncate(errorMessage);
         updateIfCurrent({
           uploading: false,
@@ -623,122 +758,166 @@ export function AdminPage() {
       if (!files.length) {
         dlog('addImages blocked: no files');
         trace('addImages blocked', { reason: 'no-files' });
+        diag('no_files_selected', { source, slotIndex: slotIndex ?? null });
+        diag('early_return', { reasonCode: 'NO_FILES', source });
+        setUploadNotice(source, formatPreflightMessage('No file selected.', 'NO_FILES'));
         return;
       }
+
       const incoming = [...files];
       const uploads: QueuedUpload[] = [];
       const previewsToRevoke: string[] = [];
       const tokensToCancel: Array<{ token?: string; uploadId?: string }> = [];
+      const maxSlots = 4;
+      const current = source === 'create' ? productImagesRef.current : editProductImagesRef.current;
+      let result = [...current];
 
       dlog('addImages start', { count: incoming.length, slotIndex });
       trace('addImages start', { count: incoming.length, slotIndex });
+      diag('add_images_start', { source, count: incoming.length, slotIndex: slotIndex ?? null });
       logUploadDebug('[shop images] batch start', { count: incoming.length, slotIndex });
 
-      setImages((prev) => {
-        const maxSlots = 4;
-        const selected = incoming.slice(0, maxSlots);
-        let result = [...prev];
+      const addErrorEntry = (file: File, message: string, errorMessage?: string) => {
+        return {
+          id: crypto.randomUUID(),
+          url: '',
+          previewUrl: undefined,
+          file,
+          isPrimary: false,
+          isNew: true,
+          uploading: false,
+          status: 'error' as UploadStatus,
+          uploadError: message,
+          errorMessage,
+          uploadToken: undefined,
+          uploadId: undefined,
+          uploadStartedAt: undefined,
+        } as ManagedImage;
+      };
 
-        // If a slot index is provided, replace starting at that slot.
-        if (slotIndex !== undefined && slotIndex !== null && slotIndex >= 0) {
-          const start = Math.min(slotIndex, maxSlots - 1);
-          selected.forEach((file, offset) => {
-            const pos = Math.min(start + offset, maxSlots - 1);
-            const existing = result[pos];
-            if (existing?.previewUrl) previewsToRevoke.push(existing.previewUrl);
-            if (existing?.uploadToken || existing?.uploadId) {
-              tokensToCancel.push({ token: existing.uploadToken, uploadId: existing.uploadId });
-            }
-            const meta = {
-              name: file.name,
-              size: file.size,
-              type: file.type,
-              lastModified: file.lastModified,
-            };
-            dlog('addImages createObjectURL', meta);
-            trace('addImages createObjectURL', meta);
-            const previewUrl = URL.createObjectURL(file);
-            dlog('addImages blob created', { previewUrl });
-            trace('addImages blob created', { previewUrl });
-            const id = crypto.randomUUID();
-            const uploadToken = createUploadToken();
-            const uploadStartedAt = Date.now();
-            uploads.push({ id, file, previewUrl, uploadToken, uploadStartedAt, setImages, getImages: () => (source === 'create' ? productImagesRef.current : editProductImagesRef.current), source });
-            const newEntry: ManagedImage = {
-              id,
-              url: previewUrl,
-              previewUrl,
-              file,
-              isPrimary: false,
-              isNew: true,
-              uploading: true,
-              status: 'queued',
-              uploadError: undefined,
-              errorMessage: undefined,
-              uploadToken,
-              uploadId: undefined,
-              uploadStartedAt,
-            };
-            result[pos] = newEntry;
-          });
-        } else {
-          // Default behavior: append into remaining slots
-          const remaining = Math.max(0, maxSlots - result.length);
-          if (remaining === 0) {
-            dlog('addImages blocked: max 4 images', { currentCount: result.length });
-            trace('addImages blocked', { reason: 'max-slots', currentCount: result.length });
-            return result;
-          }
-          const toAdd = selected.slice(0, remaining).map((file) => {
-            const meta = {
-              name: file.name,
-              size: file.size,
-              type: file.type,
-              lastModified: file.lastModified,
-            };
-            dlog('addImages createObjectURL', meta);
-            trace('addImages createObjectURL', meta);
-            const previewUrl = URL.createObjectURL(file);
-            dlog('addImages blob created', { previewUrl });
-            trace('addImages blob created', { previewUrl });
-            const id = crypto.randomUUID();
-            const uploadToken = createUploadToken();
-            const uploadStartedAt = Date.now();
-            uploads.push({ id, file, previewUrl, uploadToken, uploadStartedAt, setImages, getImages: () => (source === 'create' ? productImagesRef.current : editProductImagesRef.current), source });
-            return {
-              id,
-              url: previewUrl,
-              previewUrl,
-              file,
-              isPrimary: false,
-              isNew: true,
-              uploading: true,
-              status: 'queued',
-              uploadError: undefined,
-              errorMessage: undefined,
-              uploadToken,
-              uploadId: undefined,
-              uploadStartedAt,
-            } as ManagedImage;
-          });
-          result = [...result, ...toAdd];
+      const processFile = async (file: File, position: number) => {
+        const existing = result[position];
+        if (existing?.previewUrl) previewsToRevoke.push(existing.previewUrl);
+        if (existing?.uploadToken || existing?.uploadId) {
+          tokensToCancel.push({ token: existing.uploadToken, uploadId: existing.uploadId });
         }
 
-        // Limit to 4 slots
-        result = result.slice(0, maxSlots);
-
-        // Ensure there is a primary image
-        if (!result.some((img) => img?.isPrimary) && result.length > 0) {
-          result[0].isPrimary = true;
+        const fileMeta = {
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          lastModified: file.lastModified,
+        };
+        const readiness = await probeFileReadable(file);
+        if (!readiness.ok) {
+          const message = formatPreflightMessage(readiness.message, readiness.code);
+          diag('probe_failed', {
+            source,
+            code: readiness.code,
+            file: { name: file.name, size: file.size, type: file.type || '' },
+            debug: readiness.debug,
+          }, 'error');
+          diag('early_return', { reasonCode: readiness.code, source }, 'error');
+          recordProductUploadTrace('probe_failed', { source, code: readiness.code, ...fileMeta });
+          return addErrorEntry(file, message, debugUploads ? readiness.debug : undefined);
         }
 
-        if (source === 'create') {
-          productImagesRef.current = result;
-        } else {
-          editProductImagesRef.current = result;
+        const typeCheck = isAllowedImageFile(file);
+        if (!typeCheck.ok) {
+          const code = typeCheck.code || 'FILE_TYPE_BLOCKED';
+          const message = formatPreflightMessage(typeCheck.reason || 'Unsupported file type.', code);
+          diag('type_blocked', {
+            source,
+            code,
+            reason: typeCheck.reason,
+            file: { name: file.name, size: file.size, type: file.type || '' },
+          }, 'error');
+          diag('early_return', { reasonCode: code, source }, 'error');
+          recordProductUploadTrace('type_blocked', { source, code, ...fileMeta });
+          return addErrorEntry(file, message);
         }
-        return result;
-      });
+
+        dlog('addImages createObjectURL', fileMeta);
+        trace('addImages createObjectURL', fileMeta);
+        const previewUrl = URL.createObjectURL(file);
+        dlog('addImages blob created', { previewUrl });
+        trace('addImages blob created', { previewUrl });
+        const id = crypto.randomUUID();
+        const uploadToken = createUploadToken();
+        const uploadStartedAt = Date.now();
+        uploads.push({
+          id,
+          file,
+          previewUrl,
+          uploadToken,
+          uploadStartedAt,
+          normalizedMime: typeCheck.normalizedMime,
+          setImages,
+          getImages: () => (source === 'create' ? productImagesRef.current : editProductImagesRef.current),
+          source,
+        });
+        return {
+          id,
+          url: previewUrl,
+          previewUrl,
+          file,
+          isPrimary: false,
+          isNew: true,
+          uploading: true,
+          status: 'queued' as UploadStatus,
+          uploadError: undefined,
+          errorMessage: undefined,
+          uploadToken,
+          uploadId: undefined,
+          uploadStartedAt,
+        } as ManagedImage;
+      };
+
+      if (slotIndex !== undefined && slotIndex !== null && slotIndex >= 0) {
+        const start = Math.min(slotIndex, maxSlots - 1);
+        const available = Math.max(0, maxSlots - start);
+        if (available === 0) {
+          dlog('addImages blocked: max 4 images', { currentCount: result.length });
+          trace('addImages blocked', { reason: 'max-slots', currentCount: result.length });
+          diag('early_return', { reasonCode: 'MAX_IMAGES', source });
+          setUploadNotice(source, formatPreflightMessage('Upload blocked: maximum images reached.', 'MAX_IMAGES'));
+          return;
+        }
+        const selected = incoming.slice(0, available);
+        for (let offset = 0; offset < selected.length; offset += 1) {
+          const pos = start + offset;
+          result[pos] = await processFile(selected[offset], pos);
+        }
+      } else {
+        const remaining = Math.max(0, maxSlots - result.length);
+        if (remaining === 0) {
+          dlog('addImages blocked: max 4 images', { currentCount: result.length });
+          trace('addImages blocked', { reason: 'max-slots', currentCount: result.length });
+          diag('early_return', { reasonCode: 'MAX_IMAGES', source });
+          setUploadNotice(source, formatPreflightMessage('Upload blocked: maximum images reached.', 'MAX_IMAGES'));
+          return;
+        }
+        const selected = incoming.slice(0, remaining);
+        const toAdd: ManagedImage[] = [];
+        for (let idx = 0; idx < selected.length; idx += 1) {
+          const entry = await processFile(selected[idx], result.length + idx);
+          toAdd.push(entry);
+        }
+        result = [...result, ...toAdd];
+      }
+
+      result = result.slice(0, maxSlots);
+
+      if (!result.some((img) => img?.isPrimary) && result.length > 0) {
+        result[0].isPrimary = true;
+      }
+
+      if (source === 'create') {
+        productImagesRef.current = result;
+      } else {
+        editProductImagesRef.current = result;
+      }
+      setImages(result);
 
       previewsToRevoke.forEach((url) => URL.revokeObjectURL(url));
       tokensToCancel.forEach(({ token, uploadId }) => cancelUploadToken(token, uploadId));
@@ -988,6 +1167,7 @@ export function AdminPage() {
     setEditProductForm(null);
     setEditProductImages([]);
     editProductImagesRef.current = [];
+    setEditProductUploadNotice('');
   };
 
   const handleCreateProduct = async (e: React.FormEvent) => {
@@ -1374,6 +1554,8 @@ export function AdminPage() {
             productForm={productForm}
             productImages={productImages}
             editProductImages={editProductImages}
+            productUploadNotice={productUploadNotice}
+            editUploadNotice={editProductUploadNotice}
             adminProducts={adminProducts}
             editProductId={editProductId}
             editProductForm={editProductForm}

@@ -193,14 +193,19 @@ export type ProductUploadInitResponse = {
   objectKey?: string;
 };
 
-export async function adminInitProductImageUpload(file: File): Promise<ProductUploadInitResponse> {
+export async function adminInitProductImageUpload(
+  file: File,
+  mimeOverride?: string
+): Promise<ProductUploadInitResponse> {
+  const normalizedMime = typeof mimeOverride === 'string' ? mimeOverride.trim() : '';
+  const mimeValue = normalizedMime || file.type || undefined;
   const response = await adminFetch('/api/admin/products/images/init', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({
       filename: file.name || 'upload',
       size: file.size,
-      mime: file.type || undefined,
+      mime: mimeValue || undefined,
     }),
   });
   const text = await response.text().catch(() => '');
