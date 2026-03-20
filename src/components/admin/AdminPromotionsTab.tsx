@@ -13,6 +13,7 @@ import {
   adminListPromoCodes,
   adminUpdatePromoCode,
 } from '../../lib/adminPromoCodes';
+import { AdminGiftPromotionsSection } from './AdminGiftPromotionsSection';
 
 type PromotionFormState = {
   name: string;
@@ -715,6 +716,8 @@ export function AdminPromotionsTab() {
           </div>
         )}
       </div>
+
+      <AdminGiftPromotionsSection />
     </div>
   );
 }

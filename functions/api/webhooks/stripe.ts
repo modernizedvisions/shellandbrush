@@ -105,6 +105,38 @@ const getLineItemTotalCents = (lineItem: Stripe.LineItem): number => {
   return Math.round(Number(total || 0));
 };
 
+const getLineMetadataValue = (line: Stripe.LineItem, key: string): string | null => {
+  const fromLine = (line.metadata as any)?.[key];
+  if (typeof fromLine === 'string' && fromLine.trim()) return fromLine.trim();
+  const fromPrice = (line.price as any)?.metadata?.[key];
+  if (typeof fromPrice === 'string' && fromPrice.trim()) return fromPrice.trim();
+  const productMeta =
+    line.price?.product && typeof line.price.product !== 'string'
+      ? (line.price.product as Stripe.Product).metadata || {}
+      : {};
+  const fromProduct = (productMeta as any)?.[key];
+  if (typeof fromProduct === 'string' && fromProduct.trim()) return fromProduct.trim();
+  return null;
+};
+
+const resolveLineProductReference = (
+  line: Stripe.LineItem,
+  fallbackProductId?: string | null
+): string | null => {
+  const metadataProductId =
+    getLineMetadataValue(line, 'mv_product_id') ||
+    getLineMetadataValue(line, 'mv_gift_product_id');
+  if (metadataProductId) return metadataProductId;
+  if (typeof line.price?.product === 'string' && line.price.product.trim()) return line.price.product;
+  if (line.price?.product && typeof line.price.product !== 'string') {
+    const id = (line.price.product as Stripe.Product).id;
+    if (id && id.trim()) return id;
+  }
+  if (typeof line.price?.id === 'string' && line.price.id.trim()) return line.price.id;
+  if (fallbackProductId && fallbackProductId.trim()) return fallbackProductId;
+  return null;
+};
+
 export const onRequestPost = async (context: {
   request: Request;
   env: Env;
@@ -311,6 +343,18 @@ export const onRequestPost = async (context: {
       const promoSourceRaw = (session.metadata as any)?.mv_promo_source ?? null;
       const promoPercentRaw = (session.metadata as any)?.mv_percent_off_applied ?? null;
       const promoFreeShippingRaw = (session.metadata as any)?.mv_free_shipping_applied ?? null;
+      const giftPromotionIdRaw =
+        (session.metadata as any)?.gift_promotion_id ??
+        (session.metadata as any)?.mv_gift_promotion_id ??
+        null;
+      const giftProductIdRaw =
+        (session.metadata as any)?.gift_product_id ??
+        (session.metadata as any)?.mv_gift_product_id ??
+        null;
+      const giftQuantityRaw =
+        (session.metadata as any)?.gift_quantity ??
+        (session.metadata as any)?.mv_gift_quantity ??
+        null;
       const hasPromoMetadata = !!(promoCodeRaw || promoSourceRaw);
       const promoCode = typeof promoCodeRaw === 'string' && promoCodeRaw.trim() ? promoCodeRaw.trim() : null;
       const promoSource = typeof promoSourceRaw === 'string' && promoSourceRaw.trim() ? promoSourceRaw.trim() : null;
@@ -321,6 +365,19 @@ export const onRequestPost = async (context: {
           : null;
       const promoFreeShipping =
         promoFreeShippingRaw === '1' || promoFreeShippingRaw === 1 || promoFreeShippingRaw === true ? 1 : 0;
+      const giftPromotionId =
+        typeof giftPromotionIdRaw === 'string' && giftPromotionIdRaw.trim()
+          ? giftPromotionIdRaw.trim()
+          : null;
+      const giftProductId =
+        typeof giftProductIdRaw === 'string' && giftProductIdRaw.trim()
+          ? giftProductIdRaw.trim()
+          : null;
+      const giftQuantityParsed = Number(giftQuantityRaw);
+      const giftQuantity =
+        Number.isFinite(giftQuantityParsed) && giftQuantityParsed > 0
+          ? Math.max(1, Math.round(giftQuantityParsed))
+          : null;
       const shippingAddressText = formatShippingAddress(shippingAddress);
       const billingAddressText = formatShippingAddress(firstCharge?.billing_details?.address || null);
       const paymentMethodLabel = formatPaymentMethodLabel(cardBrand, cardLast4);
@@ -417,11 +474,7 @@ export const onRequestPost = async (context: {
         const aggregate: Record<string, number> = {};
         for (const line of lineItems) {
           if (isShippingLine(line)) continue;
-          const productIdFromPrice =
-            typeof line.price?.product === 'string'
-              ? line.price.product
-              : (line.price?.product as Stripe.Product | undefined)?.id;
-          const key = productIdFromPrice || (typeof line.price?.id === 'string' ? line.price.id : null) || productId || 'unknown';
+          const key = resolveLineProductReference(line, productId) || 'unknown';
           const qty = line.quantity ?? 1;
           if (!key) continue;
           aggregate[key] = (aggregate[key] || 0) + qty;
@@ -468,6 +521,9 @@ export const onRequestPost = async (context: {
         promoPercentOff: hasPromoMetadata ? (promoPercentOff ?? 0) : null,
         promoFreeShipping: hasPromoMetadata ? promoFreeShipping : null,
         promoSource: hasPromoMetadata ? promoSource : null,
+        giftPromotionId,
+        giftProductId,
+        giftQuantity,
         productId,
         quantityFromMeta,
       });
@@ -716,6 +772,9 @@ async function ensureOrdersSchema(db: D1Database) {
     card_last4 TEXT,
     card_brand TEXT,
     description TEXT,
+    gift_promotion_id TEXT,
+    gift_product_id TEXT,
+    gift_quantity INTEGER,
     created_at TEXT DEFAULT (datetime('now'))
   );`).run();
 
@@ -749,6 +808,9 @@ async function ensureOrdersSchema(db: D1Database) {
   await addColumnIfMissing('promo_percent_off', `ALTER TABLE orders ADD COLUMN promo_percent_off INTEGER;`);
   await addColumnIfMissing('promo_free_shipping', `ALTER TABLE orders ADD COLUMN promo_free_shipping INTEGER;`);
   await addColumnIfMissing('promo_source', `ALTER TABLE orders ADD COLUMN promo_source TEXT;`);
+  await addColumnIfMissing('gift_promotion_id', `ALTER TABLE orders ADD COLUMN gift_promotion_id TEXT;`);
+  await addColumnIfMissing('gift_product_id', `ALTER TABLE orders ADD COLUMN gift_product_id TEXT;`);
+  await addColumnIfMissing('gift_quantity', `ALTER TABLE orders ADD COLUMN gift_quantity INTEGER;`);
 
   await db
     .prepare(
@@ -1153,6 +1215,9 @@ async function ensurePromoColumns(db: D1Database) {
   await addColumn('promo_percent_off', `ALTER TABLE orders ADD COLUMN promo_percent_off INTEGER;`);
   await addColumn('promo_free_shipping', `ALTER TABLE orders ADD COLUMN promo_free_shipping INTEGER;`);
   await addColumn('promo_source', `ALTER TABLE orders ADD COLUMN promo_source TEXT;`);
+  await addColumn('gift_promotion_id', `ALTER TABLE orders ADD COLUMN gift_promotion_id TEXT;`);
+  await addColumn('gift_product_id', `ALTER TABLE orders ADD COLUMN gift_product_id TEXT;`);
+  await addColumn('gift_quantity', `ALTER TABLE orders ADD COLUMN gift_quantity INTEGER;`);
 }
 
 async function ensureGalleryItemsSchema(db: D1Database) {
@@ -1203,13 +1268,7 @@ async function mapLineItemsToEmailItems(
   imageBaseUrl: string
 ): Promise<EmailItem[]> {
   const productIds = filterNonShippingLineItems(lineItems)
-    .map((line) => {
-      if (typeof line.price?.product === 'string') return line.price.product;
-      if (line.price?.product && typeof line.price.product !== 'string') {
-        return (line.price.product as Stripe.Product).id;
-      }
-      return null;
-    })
+    .map((line) => resolveLineProductReference(line, null))
     .filter(Boolean) as string[];
   const productImageMap = await buildProductImageMap(db, productIds, imageBaseUrl);
 
@@ -1223,10 +1282,7 @@ async function mapLineItemsToEmailItems(
       productObj?.name ||
       (line.price as any)?.product_data?.name ||
       'Item';
-    const productId =
-      typeof line.price?.product === 'string'
-        ? line.price.product
-        : productObj?.id || null;
+    const productId = resolveLineProductReference(line, null);
     const stripeImageUrl =
       productObj?.images?.[0] ||
       (line.price as any)?.product_data?.images?.[0] ||
@@ -1743,6 +1799,9 @@ async function insertStandardOrderAndItems(args: {
   promoPercentOff?: number | null;
   promoFreeShipping?: number | null;
   promoSource?: string | null;
+  giftPromotionId?: string | null;
+  giftProductId?: string | null;
+  giftQuantity?: number | null;
   productId?: string | null;
   quantityFromMeta?: number;
   displayOrderIdOverride?: string | null;
@@ -1765,6 +1824,9 @@ async function insertStandardOrderAndItems(args: {
     promoPercentOff,
     promoFreeShipping,
     promoSource,
+    giftPromotionId,
+    giftProductId,
+    giftQuantity,
     productId,
     quantityFromMeta,
     displayOrderIdOverride,
@@ -1806,8 +1868,8 @@ async function insertStandardOrderAndItems(args: {
       `
         INSERT INTO orders (
           id, display_order_id, order_type, stripe_payment_intent_id, total_cents, customer_email, shipping_name, shipping_address_json, card_last4, card_brand, shipping_cents, description,
-          promo_code, promo_percent_off, promo_free_shipping, promo_source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+          promo_code, promo_percent_off, promo_free_shipping, promo_source, gift_promotion_id, gift_product_id, gift_quantity
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       `
     )
     .bind(
@@ -1826,7 +1888,10 @@ async function insertStandardOrderAndItems(args: {
       promoCode ?? null,
       promoPercentOff ?? null,
       promoFreeShipping ?? null,
-      promoSource ?? null
+      promoSource ?? null,
+      giftPromotionId ?? null,
+      giftProductId ?? null,
+      giftQuantity ?? null
     )
     .run();
 
@@ -1877,11 +1942,7 @@ async function insertStandardOrderAndItems(args: {
     filterNonShippingLineItems(session.line_items?.data || []).map((line) => {
       const qty = line.quantity ?? 1;
       const priceCents = line.price?.unit_amount ?? 0;
-      const productIdFromPrice =
-        typeof line.price?.product === 'string'
-          ? line.price.product
-          : (line.price?.product as Stripe.Product | undefined)?.id;
-      const resolvedProductId = productIdFromPrice || productId || line.price?.id || 'unknown';
+      const resolvedProductId = resolveLineProductReference(line, productId) || 'unknown';
       return { productId: resolvedProductId as string, quantity: qty, priceCents };
     });
 

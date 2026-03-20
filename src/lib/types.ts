@@ -190,3 +190,45 @@ export interface PromoCodeAdmin {
   createdAt: string | null;
   updatedAt: string | null;
 }
+
+export type GiftPromotionStatus = 'Active' | 'Scheduled' | 'Expired' | 'Disabled';
+
+export interface GiftPromotionGiftProductSummary {
+  id: string;
+  name: string;
+  description: string;
+  imageUrl: string;
+  isActive: boolean;
+  stripeProductId: string | null;
+  priceCents: number;
+}
+
+export interface GiftPromotionPublic {
+  id: string;
+  name: string;
+  thresholdSubtotalCents: number;
+  giftProductId: string;
+  giftQuantity: number;
+  bannerEnabled: boolean;
+  bannerText: string;
+  popupEnabled: boolean;
+  popupHeadline: string;
+  popupBody: string;
+  popupCtaText: string;
+  popupCtaHref: string;
+  popupImageUrl: string;
+  promoImageUrl: string;
+  previewImageUrl: string;
+  giftProduct: GiftPromotionGiftProductSummary | null;
+}
+
+export interface GiftPromotionAdmin extends GiftPromotionPublic {
+  enabled: boolean;
+  status: GiftPromotionStatus;
+  startsAt: string | null;
+  endsAt: string | null;
+  popupImageId: string | null;
+  promoImageId: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}

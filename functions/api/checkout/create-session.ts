@@ -75,6 +75,23 @@ type ActivePromoCode = {
   categorySlugs: string[];
 };
 
+type GiftPromotionRow = {
+  id: string;
+  threshold_subtotal_cents: number | null;
+  gift_product_id: string | null;
+  gift_quantity: number | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  enabled: number | null;
+};
+
+type ActiveGiftPromotion = {
+  id: string;
+  thresholdSubtotalCents: number;
+  giftProductId: string;
+  giftQuantity: number;
+};
+
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
@@ -97,18 +114,19 @@ const normalizeOrigin = (request: Request) => {
 const normalizeValue = (value?: string | null) => (value || '').trim().toLowerCase();
 const normalizeCode = (value?: string | null) => normalizeValue(value);
 
-const parseCategorySlugs = (value: string | null): string[] => {
+const parseStringArray = (value: string | null): string[] => {
   if (!value) return [];
   try {
     const parsed = JSON.parse(value);
     if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((item) => typeof item === 'string')
-      .map((item) => item.trim())
-      .filter(Boolean);
+    return parsed.filter((item) => typeof item === 'string').map((item) => item.trim()).filter(Boolean);
   } catch {
     return [];
   }
+};
+
+const parseCategorySlugs = (value: string | null): string[] => {
+  return parseStringArray(value);
 };
 
 const isValidDateValue = (value?: string | null) => {
@@ -184,6 +202,69 @@ const loadPromoCode = async (db: D1Database, code: string): Promise<ActivePromoC
     console.error('Failed to load promo code', error);
     return null;
   }
+};
+
+const loadActiveGiftPromotion = async (db: D1Database): Promise<ActiveGiftPromotion | null> => {
+  try {
+    const row = await db
+      .prepare(
+        `SELECT id, threshold_subtotal_cents, gift_product_id, gift_quantity, starts_at, ends_at, enabled
+         FROM gift_promotions
+         WHERE enabled = 1
+         ORDER BY updated_at DESC
+         LIMIT 1;`
+      )
+      .first<GiftPromotionRow>();
+
+    if (!row || row.enabled !== 1) return null;
+    if (!row.gift_product_id) return null;
+    if (!isValidDateValue(row.starts_at) || !isValidDateValue(row.ends_at)) return null;
+
+    const now = Date.now();
+    const startsAt = row.starts_at ? Date.parse(row.starts_at) : null;
+    const endsAt = row.ends_at ? Date.parse(row.ends_at) : null;
+    if (startsAt !== null && Number.isFinite(startsAt) && now < startsAt) return null;
+    if (endsAt !== null && Number.isFinite(endsAt) && now > endsAt) return null;
+
+    const thresholdSubtotalCents = Math.round(Number(row.threshold_subtotal_cents ?? 0));
+    const giftQuantity = Math.max(1, Math.round(Number(row.gift_quantity ?? 1)));
+    if (!Number.isFinite(thresholdSubtotalCents) || thresholdSubtotalCents < 1) return null;
+
+    return {
+      id: row.id,
+      thresholdSubtotalCents,
+      giftProductId: row.gift_product_id,
+      giftQuantity,
+    };
+  } catch (error) {
+    console.error('Failed to load active gift promotion', error);
+    return null;
+  }
+};
+
+const loadGiftProductById = async (db: D1Database, productId: string): Promise<ProductRow | null> => {
+  try {
+    const row = await db
+      .prepare(
+        `SELECT id, name, slug, description, price_cents, category, image_url, image_urls_json, is_active,
+                is_one_off, is_sold, quantity_available, stripe_price_id, stripe_product_id, collection, created_at
+         FROM products
+         WHERE id = ?
+         LIMIT 1;`
+      )
+      .bind(productId)
+      .first<ProductRow>();
+    return row || null;
+  } catch (error) {
+    console.error('Failed to load gift product by id', error);
+    return null;
+  }
+};
+
+const resolveProductPrimaryImage = (product: ProductRow): string | null => {
+  if (product.image_url && product.image_url.trim()) return product.image_url.trim();
+  const firstLegacy = parseStringArray(product.image_urls_json ?? null)[0] || '';
+  return firstLegacy || null;
 };
 
 const buildEligibleCategorySet = async (
@@ -302,6 +383,7 @@ export const onRequestPost = async (context: {
         : new Set<string>();
     const promoCodeInput = normalizeCode(body.promoCode);
     const promoCode = promoCodeInput ? await loadPromoCode(env.DB, promoCodeInput) : null;
+    const giftPromotion = await loadActiveGiftPromotion(env.DB);
     const promoCodeEligibleSet =
       promoCode && promoCode.scope === 'categories'
         ? await buildEligibleCategorySet(env.DB, promoCode.categorySlugs)
@@ -426,6 +508,48 @@ export const onRequestPost = async (context: {
         ? 'code'
         : null;
 
+    let giftPromotionId = '';
+    let giftProductId = '';
+    let giftQuantity = 0;
+    if (giftPromotion && subtotalCents >= giftPromotion.thresholdSubtotalCents) {
+      const giftProduct = await loadGiftProductById(env.DB, giftPromotion.giftProductId);
+      if (!giftProduct) {
+        console.warn('[checkout] gift promotion product not found; skipping gift line', {
+          giftPromotionId: giftPromotion.id,
+          giftProductId: giftPromotion.giftProductId,
+        });
+      } else {
+        const giftLineQuantity = Math.max(1, giftPromotion.giftQuantity);
+        const giftImage = resolveProductPrimaryImage(giftProduct);
+        const giftImages = giftImage && /^https?:\/\//i.test(giftImage) ? [giftImage] : undefined;
+        const metadata: Record<string, string> = {
+          mv_line_type: 'gift',
+          mv_product_id: giftProduct.id,
+          mv_gift_promotion_id: giftPromotion.id,
+          mv_gift_product_id: giftProduct.id,
+          mv_gift_quantity: String(giftLineQuantity),
+        };
+
+        lineItems.push({
+          price_data: {
+            currency: 'usd',
+            unit_amount: 0,
+            product_data: {
+              name: giftProduct.name || 'Free Gift',
+              description: giftProduct.description || undefined,
+              images: giftImages,
+              metadata,
+            },
+          },
+          quantity: giftLineQuantity,
+        });
+
+        giftPromotionId = giftPromotion.id;
+        giftProductId = giftProduct.id;
+        giftQuantity = giftLineQuantity;
+      }
+    }
+
     const expiresAt = Math.floor(Date.now() / 1000) + 1800; // Stripe requires at least 30 minutes
     console.log('Creating embedded checkout session with expires_at', expiresAt);
     if (promotion && discountedCount > 0) {
@@ -467,6 +591,12 @@ export const onRequestPost = async (context: {
           mv_percent_off_applied: String(appliedPercentOff || 0),
           mv_promo_source: promoSource || '',
           mv_auto_promo_id: appliedAutoPercent && promotion?.id ? promotion.id : '',
+          gift_promotion_id: giftPromotionId,
+          gift_product_id: giftProductId,
+          gift_quantity: giftQuantity ? String(giftQuantity) : '',
+          mv_gift_promotion_id: giftPromotionId,
+          mv_gift_product_id: giftProductId,
+          mv_gift_quantity: giftQuantity ? String(giftQuantity) : '',
         },
         consent_collection: {
           promotions: 'auto',

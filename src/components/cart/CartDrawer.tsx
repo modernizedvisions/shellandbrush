@@ -6,7 +6,14 @@ import { useNavigate } from 'react-router-dom';
 import { fetchCategories } from '../../lib/api';
 import { calculateShippingCentsForCart } from '../../lib/shipping';
 import type { Category } from '../../lib/types';
-import { getDiscountedCents, isPromotionEligible, usePromotion } from '../../lib/promotions';
+import {
+  getDiscountedCents,
+  getGiftPromotionAmountRemainingCents,
+  getGiftPromotionPreview,
+  isGiftPromotionQualified,
+  isPromotionEligible,
+  usePromotion,
+} from '../../lib/promotions';
 
 export function CartDrawer() {
   const isOpen = useUIStore((state) => state.isCartDrawerOpen);
@@ -17,7 +24,7 @@ export function CartDrawer() {
   const updateQuantity = useCartStore((state) => state.updateQuantity);
   const getSubtotal = useCartStore((state) => state.getSubtotal());
   const navigate = useNavigate();
-  const { promotion } = usePromotion();
+  const { promotion, giftPromotion } = usePromotion();
   useEffect(() => {
     if (!isOpen) return;
     let isMounted = true;
@@ -47,6 +54,10 @@ export function CartDrawer() {
       return sum + unitPrice * item.quantity;
     }, 0);
   }, [getSubtotal, items, promotion]);
+
+  const giftQualifies = isGiftPromotionQualified(giftPromotion, getSubtotal);
+  const giftPreview = giftQualifies ? getGiftPromotionPreview(giftPromotion) : null;
+  const giftRemainingCents = getGiftPromotionAmountRemainingCents(giftPromotion, getSubtotal);
 
   if (!isOpen) return null;
 
@@ -157,6 +168,29 @@ export function CartDrawer() {
                   </div>
                 </div>
               ))}
+              {giftPreview && (
+                <div className="flex gap-4 rounded-lg border border-emerald-100 bg-emerald-50/40 p-3">
+                  {giftPreview.imageUrl ? (
+                    <img
+                      src={giftPreview.imageUrl}
+                      alt={giftPreview.title}
+                      className="h-20 w-20 rounded object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  ) : (
+                    <div className="h-20 w-20 rounded bg-emerald-100" />
+                  )}
+                  <div className="flex-1">
+                    <h3 className="font-medium text-gray-900">{giftPreview.title}</h3>
+                    {giftPreview.description ? (
+                      <p className="text-xs text-gray-600 line-clamp-2">{giftPreview.description}</p>
+                    ) : null}
+                    <p className="mt-1 text-xs text-gray-500">Qty: {giftPreview.quantity}</p>
+                  </div>
+                  <div className="text-sm font-semibold text-emerald-700">FREE</div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -177,6 +211,11 @@ export function CartDrawer() {
                 <span className="font-serif">${(totalCents / 100).toFixed(2)}</span>
               </div>
             </div>
+            {giftPromotion && !giftQualifies && giftRemainingCents > 0 && (
+              <p className="mt-2 text-xs text-gray-600">
+                Spend ${(giftRemainingCents / 100).toFixed(2)} more to unlock your free gift.
+              </p>
+            )}
             <button
               onClick={handleCheckout}
               className="w-full bg-gray-900 text-white py-3 px-6 rounded-lg font-medium hover:bg-gray-800 transition-colors"

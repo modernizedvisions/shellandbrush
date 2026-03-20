@@ -4,7 +4,14 @@ import { loadStripe, type EmbeddedCheckout } from '@stripe/stripe-js';
 import { BannerMessage } from '../components/BannerMessage';
 import { createEmbeddedCheckoutSession, fetchCategories, fetchProductById } from '../lib/api';
 import type { Category, Product } from '../lib/types';
-import { getDiscountedCents, isPromotionEligible, usePromotion } from '../lib/promotions';
+import {
+  getDiscountedCents,
+  getGiftPromotionAmountRemainingCents,
+  getGiftPromotionPreview,
+  isGiftPromotionQualified,
+  isPromotionEligible,
+  usePromotion,
+} from '../lib/promotions';
 import { useCartStore } from '../store/cartStore';
 import { calculateShippingCentsForCart } from '../lib/shipping';
 import type { EmbeddedCheckoutSession } from '../lib/payments/checkout';
@@ -33,7 +40,7 @@ export function CheckoutPage() {
   const cartItems = useCartStore((state) => state.items);
   const cartSubtotal = useCartStore((state) => state.getSubtotal());
   const stripeContainerRef = useRef<HTMLDivElement | null>(null);
-  const { promotion } = usePromotion();
+  const { promotion, giftPromotion } = usePromotion();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -333,6 +340,9 @@ export function CheckoutPage() {
     if (cartItems.length) return cartSubtotal;
     return previewItems.reduce((sum, item) => sum + item.priceCents * (item.quantity || 1), 0);
   }, [cartItems.length, cartSubtotal, previewItems]);
+  const giftQualifies = isGiftPromotionQualified(giftPromotion, subtotalCents);
+  const giftPreview = giftQualifies ? getGiftPromotionPreview(giftPromotion) : null;
+  const giftRemainingCents = getGiftPromotionAmountRemainingCents(giftPromotion, subtotalCents);
 
   const discountedSubtotalCents = useMemo(() => {
     const promoCodePercent = promoSummary?.codePercentOff ?? 0;
@@ -514,6 +524,30 @@ export function CheckoutPage() {
                     </div>
                   );
                 })}
+                {giftPreview && (
+                  <div className="flex gap-3 rounded-lg border border-emerald-100 bg-emerald-50/40 p-3">
+                    {giftPreview.imageUrl ? (
+                      <img
+                        src={giftPreview.imageUrl}
+                        alt={giftPreview.title}
+                        className="w-14 h-14 rounded-md object-cover bg-gray-100 border border-emerald-100"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="w-14 h-14 rounded-md bg-emerald-100 border border-emerald-100" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-gray-900 truncate">{giftPreview.title}</p>
+                        <span className="text-sm font-semibold text-emerald-700">FREE</span>
+                      </div>
+                      {giftPreview.description ? (
+                        <p className="text-xs text-gray-600 line-clamp-2">{giftPreview.description}</p>
+                      ) : null}
+                      <p className="text-xs text-gray-500 mt-0.5">Qty: {giftPreview.quantity}</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-gray-200 pt-3 space-y-1 text-sm">
@@ -532,6 +566,11 @@ export function CheckoutPage() {
               </div>
 
               <div className="border-t border-gray-200 pt-4 space-y-2 text-sm">
+                {giftPromotion && !giftQualifies && giftRemainingCents > 0 && (
+                  <p className="text-xs text-gray-600">
+                    Spend {formatMoney(giftRemainingCents)} more to unlock your free gift.
+                  </p>
+                )}
                 <p className="text-xs uppercase tracking-wide text-gray-500">Promo code</p>
                 <div className="flex gap-2">
                   <input

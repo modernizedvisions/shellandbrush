@@ -95,11 +95,9 @@ export const onRequestGet = async (context: { env: { DB: D1Database; ADMIN_PASSW
 
     const productColumns = await context.env.DB.prepare(`PRAGMA table_info(products);`).all<{ name: string }>();
     const productCols = new Set((productColumns.results || []).map((c) => c.name));
-  const joinColumn = productCols.has('stripe_product_id')
-    ? 'stripe_product_id'
-    : productCols.has('stripe_product_id'.toUpperCase())
-    ? 'stripe_product_id'.toUpperCase()
-    : 'id';
+  const joinCondition = productCols.has('stripe_product_id')
+    ? '(oi.product_id = p.stripe_product_id OR oi.product_id = p.id)'
+    : 'oi.product_id = p.id';
 
   const hasImageUrlsJson = productCols.has('image_urls_json');
   const hasShippingCents = columnNames.includes('shipping_cents');
@@ -120,7 +118,7 @@ export const onRequestGet = async (context: { env: { DB: D1Database; ADMIN_PASSW
                p.name AS product_name,
                ${imageSelect} AS product_image_url
         FROM order_items oi
-        LEFT JOIN products p ON oi.product_id = p.${joinColumn}
+        LEFT JOIN products p ON ${joinCondition}
         WHERE oi.order_id IN (${placeholders});
       `
       ).bind(...orderIds);
