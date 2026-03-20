@@ -206,6 +206,15 @@ const createProductsTable = `
   );
 `;
 
+const chunkArray = <T>(items: T[], size: number): T[][] => {
+  if (size <= 0) return [items];
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+};
+
 const fetchImageUrlMap = async (
   db: D1Database,
   ids: string[],
@@ -213,17 +222,21 @@ const fetchImageUrlMap = async (
 ): Promise<Map<string, string>> => {
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return new Map();
-  const placeholders = unique.map(() => '?').join(', ');
-  const { results } = await db
-    .prepare(`SELECT id, public_url, storage_key FROM images WHERE id IN (${placeholders});`)
-    .bind(...unique)
-    .all<{ id: string; public_url: string | null; storage_key: string | null }>();
-  return new Map(
-    (results || []).map((row) => [
-      row.id,
-      resolvePublicImageUrl(row.public_url, row.storage_key, baseUrl),
-    ])
-  );
+  const urlMap = new Map<string, string>();
+  const idChunks = chunkArray(unique, 80);
+
+  for (const idChunk of idChunks) {
+    const placeholders = idChunk.map(() => '?').join(', ');
+    const { results } = await db
+      .prepare(`SELECT id, public_url, storage_key FROM images WHERE id IN (${placeholders});`)
+      .bind(...idChunk)
+      .all<{ id: string; public_url: string | null; storage_key: string | null }>();
+    for (const row of results || []) {
+      urlMap.set(row.id, resolvePublicImageUrl(row.public_url, row.storage_key, baseUrl));
+    }
+  }
+
+  return urlMap;
 };
 
 const resolveCategoryFromId = async (db: D1Database, categoryId?: string | null): Promise<string> => {
@@ -300,12 +313,31 @@ export async function onRequestGet(context: {
     const rows = results || [];
     const imageIds = rows.flatMap((row) => {
       const extra = row.image_ids_json ? safeParseJsonArray(row.image_ids_json) : [];
+      if (extra.length > 10) {
+        console.warn('[admin/products] suspicious image_ids_json length', {
+          productId: row.id,
+          name: row.name,
+          count: extra.length,
+        });
+      }
       const primary = row.primary_image_id ? [row.primary_image_id] : [];
       return [...primary, ...extra];
     });
     const baseUrl = getPublicImagesBaseUrl(context.env, context.request);
     const normalize = buildNormalize(baseUrl);
-    const imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds, baseUrl);
+    console.log('[admin/products] image lookup count', {
+      productCount: rows.length,
+      imageIdCount: imageIds.length,
+      uniqueImageIdCount: new Set(imageIds.filter(Boolean)).size,
+    });
+
+    let imageUrlMap: Map<string, string>;
+    try {
+      imageUrlMap = await fetchImageUrlMap(context.env.DB, imageIds, baseUrl);
+    } catch (lookupError) {
+      console.error('[admin/products] image lookup failed', lookupError);
+      imageUrlMap = new Map<string, string>();
+    }
     const products: Product[] = rows.map((row) => mapRowToProduct(row, imageUrlMap, normalize));
 
     return new Response(JSON.stringify({ products }), {
