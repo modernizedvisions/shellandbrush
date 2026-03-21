@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { adminFetchProducts, adminUploadImage } from '../../lib/api';
+import { adminCreateProduct, adminFetchProducts, adminUploadImage } from '../../lib/api';
 import {
   adminCreateGiftPromotion,
   adminDeleteGiftPromotion,
@@ -30,6 +30,13 @@ type GiftPromotionFormState = {
   promoImageUrl: string;
 };
 
+type GiveawayProductDraft = {
+  name: string;
+  description: string;
+  imageId: string | null;
+  imageUrl: string;
+};
+
 const emptyForm: GiftPromotionFormState = {
   name: '',
   enabled: false,
@@ -49,6 +56,13 @@ const emptyForm: GiftPromotionFormState = {
   popupImageUrl: '',
   promoImageId: null,
   promoImageUrl: '',
+};
+
+const emptyGiveawayDraft: GiveawayProductDraft = {
+  name: '',
+  description: '',
+  imageId: null,
+  imageUrl: '',
 };
 
 const toInputValue = (value: string | null) => {
@@ -82,7 +96,7 @@ const buildPayload = (form: GiftPromotionFormState): GiftPromotionAdmin => ({
   endsAt: toIsoValue(form.endsAt),
   thresholdSubtotalCents: centsFromDollars(form.thresholdSubtotalDollars),
   giftProductId: form.giftProductId,
-  giftQuantity: Math.max(1, Math.round(Number(form.giftQuantity) || 1)),
+  giftQuantity: 1,
   bannerEnabled: form.bannerEnabled,
   bannerText: form.bannerText.trim(),
   popupEnabled: form.popupEnabled,
@@ -108,8 +122,12 @@ export function AdminGiftPromotionsSection() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<GiftPromotionFormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [productSource, setProductSource] = useState<'existing' | 'create'>('existing');
+  const [giveawayDraft, setGiveawayDraft] = useState<GiveawayProductDraft>(emptyGiveawayDraft);
+  const [creatingGiveawayProduct, setCreatingGiveawayProduct] = useState(false);
+  const [giveawayNotice, setGiveawayNotice] = useState<string | null>(null);
   const [uploadingPopupImage, setUploadingPopupImage] = useState(false);
-  const [uploadingPromoImage, setUploadingPromoImage] = useState(false);
+  const [uploadingGiveawayImage, setUploadingGiveawayImage] = useState(false);
 
   const debugUploads = debugUploadsEnabled();
 
@@ -150,29 +168,38 @@ export function AdminGiftPromotionsSection() {
     void loadAll();
   }, []);
 
-  const uploadImage = async (kind: 'popup' | 'promo', file: File) => {
+  useEffect(() => {
+    if (productSource !== 'create') return;
+    const promotionName = form.name.trim();
+    if (!promotionName) return;
+    setGiveawayDraft((prev) => (prev.name.trim() ? prev : { ...prev, name: promotionName }));
+  }, [form.name, productSource]);
+
+  const uploadImage = async (kind: 'popup' | 'giveawayProduct', file: File) => {
     try {
       if (kind === 'popup') setUploadingPopupImage(true);
-      if (kind === 'promo') setUploadingPromoImage(true);
+      if (kind === 'giveawayProduct') setUploadingGiveawayImage(true);
       const result = await adminUploadImage(file, {
-        scope: 'home',
-        entityType: 'gift_promotion',
-        entityId: editingId || 'new',
-        kind: kind === 'popup' ? 'gift_popup' : 'gift_preview',
+        scope: kind === 'popup' ? 'home' : 'products',
+        entityType: kind === 'popup' ? 'gift_promotion' : 'product',
+        entityId: kind === 'popup' ? editingId || 'new' : 'new-giveaway',
+        kind: kind === 'popup' ? 'gift_popup' : 'product_primary',
+        isPrimary: kind === 'giveawayProduct' ? true : undefined,
+        sortOrder: kind === 'giveawayProduct' ? 0 : undefined,
       });
-      setForm((prev) =>
-        kind === 'popup'
-          ? {
-              ...prev,
-              popupImageId: result.id,
-              popupImageUrl: result.url,
-            }
-          : {
-              ...prev,
-              promoImageId: result.id,
-              promoImageUrl: result.url,
-            }
-      );
+      if (kind === 'popup') {
+        setForm((prev) => ({
+          ...prev,
+          popupImageId: result.id,
+          popupImageUrl: result.url,
+        }));
+      } else {
+        setGiveawayDraft((prev) => ({
+          ...prev,
+          imageId: result.id,
+          imageUrl: result.url,
+        }));
+      }
     } catch (err) {
       const message = debugUploads
         ? formatUploadDebugError(err)
@@ -182,12 +209,15 @@ export function AdminGiftPromotionsSection() {
       setError(message);
     } finally {
       if (kind === 'popup') setUploadingPopupImage(false);
-      if (kind === 'promo') setUploadingPromoImage(false);
+      if (kind === 'giveawayProduct') setUploadingGiveawayImage(false);
     }
   };
 
   const handleEdit = (promotion: GiftPromotionAdmin) => {
     setEditingId(promotion.id);
+    setProductSource('existing');
+    setGiveawayDraft(emptyGiveawayDraft);
+    setGiveawayNotice(null);
     setForm({
       name: promotion.name,
       enabled: promotion.enabled,
@@ -195,7 +225,7 @@ export function AdminGiftPromotionsSection() {
       endsAt: toInputValue(promotion.endsAt),
       thresholdSubtotalDollars: dollarsFromCents(promotion.thresholdSubtotalCents),
       giftProductId: promotion.giftProductId,
-      giftQuantity: promotion.giftQuantity,
+      giftQuantity: 1,
       bannerEnabled: promotion.bannerEnabled,
       bannerText: promotion.bannerText || '',
       popupEnabled: promotion.popupEnabled,
@@ -210,9 +240,85 @@ export function AdminGiftPromotionsSection() {
     });
   };
 
+  const handleProductSourceChange = (source: 'existing' | 'create') => {
+    setProductSource(source);
+    setGiveawayNotice(null);
+
+    if (source === 'existing') {
+      setForm((prev) => ({
+        ...prev,
+        giftProductId: prev.giftProductId || productOptions[0]?.id || '',
+      }));
+      return;
+    }
+
+    setForm((prev) => ({ ...prev, giftProductId: '' }));
+    setGiveawayDraft((prev) => {
+      if (prev.name.trim()) return prev;
+      const promotionName = form.name.trim();
+      return promotionName ? { ...prev, name: promotionName } : prev;
+    });
+  };
+
+  const handleCreateGiveawayProduct = async () => {
+    const name = giveawayDraft.name.trim();
+    const description = giveawayDraft.description.trim();
+
+    if (!name) {
+      setError('Giveaway Item Name is required to create a giveaway product.');
+      return;
+    }
+    if (!description) {
+      setError('Description is required to create a giveaway product.');
+      return;
+    }
+    if (!giveawayDraft.imageId && !giveawayDraft.imageUrl) {
+      setError('Upload Product Image is required to create a giveaway product.');
+      return;
+    }
+
+    setError(null);
+    setGiveawayNotice(null);
+    setCreatingGiveawayProduct(true);
+    try {
+      const created = await adminCreateProduct({
+        name,
+        description,
+        priceCents: 0,
+        category: 'Giveaway',
+        imageUrl: giveawayDraft.imageUrl,
+        imageUrls: giveawayDraft.imageUrl ? [giveawayDraft.imageUrl] : [],
+        primaryImageId: giveawayDraft.imageId || undefined,
+        imageIds: giveawayDraft.imageId ? [giveawayDraft.imageId] : undefined,
+        quantityAvailable: 1,
+        isOneOff: true,
+        isActive: false,
+      });
+
+      if (!created?.id) {
+        throw new Error('Failed to create giveaway product.');
+      }
+
+      const refreshedProducts = await adminFetchProducts();
+      setProducts(refreshedProducts);
+      setForm((prev) => ({ ...prev, giftProductId: created.id }));
+      setProductSource('existing');
+      setGiveawayDraft(emptyGiveawayDraft);
+      setGiveawayNotice(`Giveaway product created: ${created.name}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create giveaway product');
+    } finally {
+      setCreatingGiveawayProduct(false);
+    }
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
+    if (!form.giftProductId) {
+      setError('Select a giveaway product before saving this promotion.');
+      return;
+    }
     setSaving(true);
     try {
       const payload = buildPayload(form);
@@ -223,6 +329,9 @@ export function AdminGiftPromotionsSection() {
       }
       await loadAll();
       setEditingId(null);
+      setProductSource('existing');
+      setGiveawayDraft(emptyGiveawayDraft);
+      setGiveawayNotice(null);
       setForm((prev) => ({
         ...emptyForm,
         giftProductId: prev.giftProductId || productOptions[0]?.id || '',
@@ -242,6 +351,9 @@ export function AdminGiftPromotionsSection() {
       await loadAll();
       if (editingId === promotionId) {
         setEditingId(null);
+        setProductSource('existing');
+        setGiveawayDraft(emptyGiveawayDraft);
+        setGiveawayNotice(null);
         setForm(emptyForm);
       }
     } catch (err) {
@@ -262,18 +374,26 @@ export function AdminGiftPromotionsSection() {
     }
   };
 
-  const previewImageUrl = form.promoImageUrl || selectedProduct?.imageUrl || '';
+  const submitDisabled =
+    saving ||
+    uploadingPopupImage ||
+    uploadingGiveawayImage ||
+    creatingGiveawayProduct ||
+    !form.giftProductId;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Gift Promotions</h2>
-          <p className="text-sm text-gray-600">Spend over a subtotal and automatically include a free product.</p>
+          <p className="text-sm text-gray-600">Build a simple spend-and-get-a-free-item promotion.</p>
         </div>
         <button
           onClick={() => {
             setEditingId(null);
+            setProductSource('existing');
+            setGiveawayDraft(emptyGiveawayDraft);
+            setGiveawayNotice(null);
             setForm((prev) => ({ ...emptyForm, giftProductId: prev.giftProductId || productOptions[0]?.id || '' }));
           }}
           className="px-3 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm"
@@ -288,258 +408,374 @@ export function AdminGiftPromotionsSection() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="rounded-xl border border-gray-200 bg-white p-4 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <label className="space-y-1">
-            <span className="text-sm font-medium text-gray-700">Name</span>
-            <input
-              value={form.name}
-              onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              placeholder="Spend $200, free coasters"
-              required
-            />
-          </label>
-          <label className="space-y-1">
-            <span className="text-sm font-medium text-gray-700">Enabled</span>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={form.enabled}
-                onChange={(event) => setForm((prev) => ({ ...prev, enabled: event.target.checked }))}
-              />
-              <span className="text-sm text-gray-600">Make this gift promotion active</span>
-            </div>
-          </label>
-          <label className="space-y-1">
-            <span className="text-sm font-medium text-gray-700">Threshold Subtotal ($)</span>
-            <input
-              type="number"
-              min={0.01}
-              step="0.01"
-              value={form.thresholdSubtotalDollars}
-              onChange={(event) => setForm((prev) => ({ ...prev, thresholdSubtotalDollars: event.target.value }))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              required
-            />
-          </label>
-          <label className="space-y-1">
-            <span className="text-sm font-medium text-gray-700">Gift Quantity</span>
-            <input
-              type="number"
-              min={1}
-              max={25}
-              value={form.giftQuantity}
-              onChange={(event) => setForm((prev) => ({ ...prev, giftQuantity: Number(event.target.value) || 1 }))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              required
-            />
-          </label>
-          <label className="space-y-1 md:col-span-2">
-            <span className="text-sm font-medium text-gray-700">Gift Product (includes inactive products)</span>
-            <select
-              value={form.giftProductId}
-              onChange={(event) => setForm((prev) => ({ ...prev, giftProductId: event.target.value }))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              required
-            >
-              <option value="">Select a gift product</option>
-              {productOptions.map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.name} {!product.visible ? '(Inactive)' : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="space-y-1">
-            <span className="text-sm font-medium text-gray-700">Starts At</span>
-            <input
-              type="datetime-local"
-              value={form.startsAt}
-              onChange={(event) => setForm((prev) => ({ ...prev, startsAt: event.target.value }))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="space-y-1">
-            <span className="text-sm font-medium text-gray-700">Ends At</span>
-            <input
-              type="datetime-local"
-              value={form.endsAt}
-              onChange={(event) => setForm((prev) => ({ ...prev, endsAt: event.target.value }))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            />
-          </label>
+      {giveawayNotice && (
+        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          {giveawayNotice}
         </div>
+      )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <form onSubmit={handleSubmit} className="rounded-xl border border-gray-200 bg-white p-5 md:p-6 space-y-8">
+        <section className="space-y-4 rounded-lg border border-gray-200 p-4 md:p-5">
+          <div className="space-y-1">
+            <h3 className="text-base font-semibold text-gray-900">Promotion Basics</h3>
+            <p className="text-sm text-gray-600">
+              Set the name, spend requirement, and optional schedule for this giveaway.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="space-y-1 md:col-span-2">
+              <span className="text-sm font-medium text-gray-700">Promotion Name</span>
+              <input
+                value={form.name}
+                onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Spend $200, free coasters"
+                required
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-gray-700">Minimum Cart Amount ($)</span>
+              <input
+                type="number"
+                min={0.01}
+                step="0.01"
+                value={form.thresholdSubtotalDollars}
+                onChange={(event) => setForm((prev) => ({ ...prev, thresholdSubtotalDollars: event.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                required
+              />
+              <p className="text-xs text-gray-500">
+                Customers must spend at least this amount before shipping and tax to receive the free item.
+              </p>
+            </label>
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-gray-700">Starts At</span>
+              <input
+                type="datetime-local"
+                value={form.startsAt}
+                onChange={(event) => setForm((prev) => ({ ...prev, startsAt: event.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-gray-700">Ends At</span>
+              <input
+                type="datetime-local"
+                value={form.endsAt}
+                onChange={(event) => setForm((prev) => ({ ...prev, endsAt: event.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="space-y-4 rounded-lg border border-gray-200 p-4 md:p-5">
+          <div className="space-y-1">
+            <h3 className="text-base font-semibold text-gray-900">Giveaway Product</h3>
+            <p className="text-sm text-gray-600">
+              Choose an existing item or create a simple new giveaway item.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
+                productSource === 'existing' ? 'border-gray-900 bg-gray-50' : 'border-gray-300'
+              }`}
+            >
+              <input
+                type="radio"
+                name="giveaway-product-source"
+                checked={productSource === 'existing'}
+                onChange={() => handleProductSourceChange('existing')}
+              />
+              <span className="text-sm font-medium text-gray-800">Use Existing Product</span>
+            </label>
+            <label
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
+                productSource === 'create' ? 'border-gray-900 bg-gray-50' : 'border-gray-300'
+              }`}
+            >
+              <input
+                type="radio"
+                name="giveaway-product-source"
+                checked={productSource === 'create'}
+                onChange={() => handleProductSourceChange('create')}
+              />
+              <span className="text-sm font-medium text-gray-800">Create New Giveaway Product</span>
+            </label>
+          </div>
+          {productSource === 'existing' ? (
+            <div className="space-y-3">
+              <label className="space-y-1">
+                <span className="text-sm font-medium text-gray-700">Select Giveaway Product</span>
+                <select
+                  value={form.giftProductId}
+                  onChange={(event) => setForm((prev) => ({ ...prev, giftProductId: event.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  required
+                >
+                  <option value="">Select Giveaway Product</option>
+                  {productOptions.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.name} {!product.visible ? '(Inactive)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500">Inactive products can still be used for giveaways.</p>
+              </label>
+              {selectedProduct?.imageUrl && (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Giveaway Product Image</p>
+                  <img
+                    src={selectedProduct.imageUrl}
+                    alt={selectedProduct.name}
+                    className="h-24 w-24 rounded border object-cover"
+                  />
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4 rounded-lg border border-gray-100 bg-gray-50/50 p-4">
+              <p className="text-xs text-gray-500">New giveaway products are saved as hidden Giveaway items.</p>
+              <label className="space-y-1">
+                <span className="text-sm font-medium text-gray-700">Giveaway Item Name</span>
+                <input
+                  value={giveawayDraft.name}
+                  onChange={(event) => setGiveawayDraft((prev) => ({ ...prev, name: event.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  placeholder="Free shell brush"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-sm font-medium text-gray-700">Description</span>
+                <textarea
+                  value={giveawayDraft.description}
+                  onChange={(event) => setGiveawayDraft((prev) => ({ ...prev, description: event.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  rows={3}
+                />
+              </label>
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-700">Upload Product Image</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void uploadImage('giveawayProduct', file);
+                      event.currentTarget.value = '';
+                    }}
+                    className="text-sm"
+                  />
+                  {uploadingGiveawayImage && <span className="text-xs text-gray-500">Uploading...</span>}
+                  {giveawayDraft.imageId && (
+                    <button
+                      type="button"
+                      className="text-xs text-red-600"
+                      onClick={() => setGiveawayDraft((prev) => ({ ...prev, imageId: null, imageUrl: '' }))}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {giveawayDraft.imageUrl && (
+                  <img
+                    src={giveawayDraft.imageUrl}
+                    alt="Giveaway product preview"
+                    className="h-24 w-24 rounded border object-cover"
+                  />
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleCreateGiveawayProduct()}
+                disabled={creatingGiveawayProduct || uploadingGiveawayImage}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-800 disabled:opacity-50"
+              >
+                {creatingGiveawayProduct ? 'Creating Giveaway Product...' : 'Create Giveaway Product'}
+              </button>
+            </div>
+          )}
+        </section>
+
+        <section className="space-y-4 rounded-lg border border-gray-200 p-4 md:p-5">
+          <div className="space-y-1">
+            <h3 className="text-base font-semibold text-gray-900">Banner</h3>
+            <p className="text-sm text-gray-600">
+              Optionally advertise this gift promotion in the site banner.
+            </p>
+          </div>
           <label className="space-y-1">
-            <span className="text-sm font-medium text-gray-700">Banner Enabled</span>
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
                 checked={form.bannerEnabled}
                 onChange={(event) => setForm((prev) => ({ ...prev, bannerEnabled: event.target.checked }))}
               />
-              <span className="text-sm text-gray-600">Use banner slot when no discount banner is active</span>
+              <span className="text-sm font-medium text-gray-700">Show Banner</span>
             </div>
+            <p className="text-xs text-gray-500">
+              Your banner will appear when no discount promotion banner is already active.
+            </p>
           </label>
-          <label className="space-y-1">
-            <span className="text-sm font-medium text-gray-700">Banner Text</span>
-            <input
-              value={form.bannerText}
-              onChange={(event) => setForm((prev) => ({ ...prev, bannerText: event.target.value }))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              placeholder="Spend $200, get free coasters"
-            />
-          </label>
-        </div>
+          {form.bannerEnabled && (
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-gray-700">Banner Text</span>
+              <input
+                value={form.bannerText}
+                onChange={(event) => setForm((prev) => ({ ...prev, bannerText: event.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Spend $200, get a free shell brush"
+              />
+            </label>
+          )}
+        </section>
 
-        <div className="rounded-lg border border-gray-200 p-4 space-y-3">
-          <p className="text-sm font-semibold text-gray-800">Popup Controls (Homepage Only)</p>
+        <section className="space-y-4 rounded-lg border border-gray-200 p-4 md:p-5">
+          <div className="space-y-1">
+            <h3 className="text-base font-semibold text-gray-900">Homepage Popup</h3>
+            <p className="text-sm text-gray-600">
+              Optionally show a homepage popup for this promotion.
+            </p>
+          </div>
           <label className="space-y-1">
-            <span className="text-sm font-medium text-gray-700">Popup Enabled</span>
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
                 checked={form.popupEnabled}
                 onChange={(event) => setForm((prev) => ({ ...prev, popupEnabled: event.target.checked }))}
               />
-              <span className="text-sm text-gray-600">Show popup on homepage only</span>
+              <span className="text-sm font-medium text-gray-700">Show Homepage Popup</span>
             </div>
           </label>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <label className="space-y-1">
-              <span className="text-sm font-medium text-gray-700">Popup Headline</span>
-              <input
-                value={form.popupHeadline}
-                onChange={(event) => setForm((prev) => ({ ...prev, popupHeadline: event.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="space-y-1">
-              <span className="text-sm font-medium text-gray-700">Popup CTA Text</span>
-              <input
-                value={form.popupCtaText}
-                onChange={(event) => setForm((prev) => ({ ...prev, popupCtaText: event.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="space-y-1 md:col-span-2">
-              <span className="text-sm font-medium text-gray-700">Popup Body</span>
-              <textarea
-                value={form.popupBody}
-                onChange={(event) => setForm((prev) => ({ ...prev, popupBody: event.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                rows={3}
-              />
-            </label>
-            <label className="space-y-1 md:col-span-2">
-              <span className="text-sm font-medium text-gray-700">Popup CTA Href</span>
-              <input
-                value={form.popupCtaHref}
-                onChange={(event) => setForm((prev) => ({ ...prev, popupCtaHref: event.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                placeholder="/shop"
-              />
-            </label>
-          </div>
+          {form.popupEnabled && (
+            <div className="space-y-4">
+              <label className="space-y-1">
+                <span className="text-sm font-medium text-gray-700">Popup Title</span>
+                <input
+                  value={form.popupHeadline}
+                  onChange={(event) => setForm((prev) => ({ ...prev, popupHeadline: event.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-sm font-medium text-gray-700">Popup Description</span>
+                <textarea
+                  value={form.popupBody}
+                  onChange={(event) => setForm((prev) => ({ ...prev, popupBody: event.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  rows={3}
+                />
+              </label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="space-y-1">
+                  <span className="text-sm font-medium text-gray-700">Button Text</span>
+                  <input
+                    value={form.popupCtaText}
+                    onChange={(event) => setForm((prev) => ({ ...prev, popupCtaText: event.target.value }))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-sm font-medium text-gray-700">Page Redirect</span>
+                  <input
+                    value={form.popupCtaHref}
+                    onChange={(event) => setForm((prev) => ({ ...prev, popupCtaHref: event.target.value }))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    placeholder="/shop or /custom-orders"
+                  />
+                  <p className="text-xs text-gray-500">Use a relative page path like /shop or /custom-orders.</p>
+                </label>
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-700">Popup Image</p>
+                <p className="text-xs text-gray-500">
+                  Dedicated marketing image for the popup, separate from the giveaway product image.
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void uploadImage('popup', file);
+                      event.currentTarget.value = '';
+                    }}
+                    className="text-sm"
+                  />
+                  {uploadingPopupImage && <span className="text-xs text-gray-500">Uploading...</span>}
+                  {form.popupImageId && (
+                    <button
+                      type="button"
+                      className="text-xs text-red-600"
+                      onClick={() =>
+                        setForm((prev) => ({
+                          ...prev,
+                          popupImageId: null,
+                          popupImageUrl: '',
+                        }))
+                      }
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {form.popupImageUrl && (
+                  <img src={form.popupImageUrl} alt="Popup preview" className="h-24 w-24 rounded border object-cover" />
+                )}
+              </div>
+            </div>
+          )}
+        </section>
 
-          <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-              Dedicated Popup Image (uploaded marketing asset, separate from reward product image)
+        <section className="space-y-4 rounded-lg border border-gray-200 p-4 md:p-5">
+          <div className="space-y-1">
+            <h3 className="text-base font-semibold text-gray-900">Publish</h3>
+            <p className="text-sm text-gray-600">
+              Turn this promotion on when everything looks ready.
             </p>
+          </div>
+          <label className="space-y-1">
             <div className="flex items-center gap-2">
               <input
-                type="file"
-                accept="image/*"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void uploadImage('popup', file);
-                  event.currentTarget.value = '';
-                }}
-                className="text-sm"
+                type="checkbox"
+                checked={form.enabled}
+                onChange={(event) => setForm((prev) => ({ ...prev, enabled: event.target.checked }))}
               />
-              {uploadingPopupImage && <span className="text-xs text-gray-500">Uploading...</span>}
-              {form.popupImageId && (
-                <button
-                  type="button"
-                  className="text-xs text-red-600"
-                  onClick={() =>
-                    setForm((prev) => ({
-                      ...prev,
-                      popupImageId: null,
-                      popupImageUrl: '',
-                    }))
-                  }
-                >
-                  Clear
-                </button>
-              )}
+              <span className="text-sm font-medium text-gray-700">Make This Gift Promotion Active</span>
             </div>
-            {form.popupImageUrl && (
-              <img src={form.popupImageUrl} alt="Popup preview" className="h-24 w-24 rounded border object-cover" />
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-gray-200 p-4 space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-            Promo Preview Image (optional override for cart/checkout reward preview)
-          </p>
+          </label>
+          {productSource === 'create' && !form.giftProductId && (
+            <p className="text-sm text-amber-700">
+              Create the giveaway product in Section 2 before saving this promotion.
+            </p>
+          )}
           <div className="flex items-center gap-2">
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void uploadImage('promo', file);
-                event.currentTarget.value = '';
-              }}
-              className="text-sm"
-            />
-            {uploadingPromoImage && <span className="text-xs text-gray-500">Uploading...</span>}
-            {form.promoImageId && (
+            <button
+              type="submit"
+              disabled={submitDisabled}
+              className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm disabled:opacity-50"
+            >
+              {editingId ? 'Update Gift Promotion' : 'Create Gift Promotion'}
+            </button>
+            {editingId && (
               <button
                 type="button"
-                className="text-xs text-red-600"
-                onClick={() =>
-                  setForm((prev) => ({
-                    ...prev,
-                    promoImageId: null,
-                    promoImageUrl: '',
-                  }))
-                }
+                onClick={() => {
+                  setEditingId(null);
+                  setProductSource('existing');
+                  setGiveawayDraft(emptyGiveawayDraft);
+                  setGiveawayNotice(null);
+                  setForm((prev) => ({ ...emptyForm, giftProductId: prev.giftProductId || productOptions[0]?.id || '' }));
+                }}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm"
               >
-                Clear
+                Cancel
               </button>
             )}
           </div>
-          {previewImageUrl && (
-            <img src={previewImageUrl} alt="Gift preview" className="h-24 w-24 rounded border object-cover" />
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="submit"
-            disabled={saving || uploadingPopupImage || uploadingPromoImage}
-            className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm disabled:opacity-50"
-          >
-            {editingId ? 'Update Gift Promotion' : 'Create Gift Promotion'}
-          </button>
-          {editingId && (
-            <button
-              type="button"
-              onClick={() => {
-                setEditingId(null);
-                setForm((prev) => ({ ...emptyForm, giftProductId: prev.giftProductId || productOptions[0]?.id || '' }));
-              }}
-              className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm"
-            >
-              Cancel
-            </button>
-          )}
-        </div>
+        </section>
       </form>
 
       <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -558,7 +794,7 @@ export function AdminGiftPromotionsSection() {
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-gray-900">{promotion.name}</p>
                   <p className="text-xs text-gray-600">
-                    Spend ${(promotion.thresholdSubtotalCents / 100).toFixed(2)} · Free qty {promotion.giftQuantity} · {promotion.status}
+                    Spend ${(promotion.thresholdSubtotalCents / 100).toFixed(2)} - {promotion.status}
                   </p>
                   <p className="text-xs text-gray-500 truncate">
                     Gift: {promotion.giftProduct?.name || promotion.giftProductId}
@@ -566,9 +802,9 @@ export function AdminGiftPromotionsSection() {
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {(promotion.previewImageUrl || promotion.giftProduct?.imageUrl) && (
+                  {(promotion.giftProduct?.imageUrl || promotion.previewImageUrl) && (
                     <img
-                      src={promotion.previewImageUrl || promotion.giftProduct?.imageUrl || ''}
+                      src={promotion.giftProduct?.imageUrl || promotion.previewImageUrl || ''}
                       alt={promotion.giftProduct?.name || promotion.name}
                       className="h-12 w-12 rounded border object-cover"
                     />
