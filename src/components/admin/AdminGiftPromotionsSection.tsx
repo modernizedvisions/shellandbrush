@@ -50,8 +50,8 @@ const emptyForm: GiftPromotionFormState = {
   popupEnabled: false,
   popupHeadline: '',
   popupBody: '',
-  popupCtaText: '',
-  popupCtaHref: '',
+  popupCtaText: 'SHOP NOW',
+  popupCtaHref: '/shop',
   popupImageId: null,
   popupImageUrl: '',
   promoImageId: null,
@@ -64,6 +64,14 @@ const emptyGiveawayDraft: GiveawayProductDraft = {
   imageId: null,
   imageUrl: '',
 };
+
+const popupRedirectOptions = [
+  { label: 'Shop Page', value: '/shop' },
+  { label: 'Gallery Page', value: '/gallery' },
+  { label: 'About Page', value: '/about' },
+  { label: 'Join Page', value: '/join' },
+  { label: 'Home Page', value: '/' },
+];
 
 const toInputValue = (value: string | null) => {
   if (!value) return '';
@@ -231,8 +239,8 @@ export function AdminGiftPromotionsSection() {
       popupEnabled: promotion.popupEnabled,
       popupHeadline: promotion.popupHeadline || '',
       popupBody: promotion.popupBody || '',
-      popupCtaText: promotion.popupCtaText || '',
-      popupCtaHref: promotion.popupCtaHref || '',
+      popupCtaText: promotion.popupCtaText || 'SHOP NOW',
+      popupCtaHref: promotion.popupCtaHref || '/shop',
       popupImageId: promotion.popupImageId,
       popupImageUrl: promotion.popupImageUrl || '',
       promoImageId: promotion.promoImageId,
@@ -380,6 +388,13 @@ export function AdminGiftPromotionsSection() {
     uploadingGiveawayImage ||
     creatingGiveawayProduct ||
     !form.giftProductId;
+
+  const popupRedirectOptionsForForm =
+    form.popupCtaHref && !popupRedirectOptions.some((option) => option.value === form.popupCtaHref)
+      ? [...popupRedirectOptions, { label: `Current Redirect (${form.popupCtaHref})`, value: form.popupCtaHref }]
+      : popupRedirectOptions;
+
+  const popupRedirectValue = form.popupCtaHref || '/shop';
 
   return (
     <div className="space-y-6">
@@ -675,17 +690,22 @@ export function AdminGiftPromotionsSection() {
                     value={form.popupCtaText}
                     onChange={(event) => setForm((prev) => ({ ...prev, popupCtaText: event.target.value }))}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    placeholder="SHOP NOW"
                   />
                 </label>
                 <label className="space-y-1">
                   <span className="text-sm font-medium text-gray-700">Page Redirect</span>
-                  <input
-                    value={form.popupCtaHref}
+                  <select
+                    value={popupRedirectValue}
                     onChange={(event) => setForm((prev) => ({ ...prev, popupCtaHref: event.target.value }))}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                    placeholder="/shop or /custom-orders"
-                  />
-                  <p className="text-xs text-gray-500">Use a relative page path like /shop or /custom-orders.</p>
+                  >
+                    {popupRedirectOptionsForForm.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
               <div className="space-y-2">
